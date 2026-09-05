@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<updates>
+    <update>
+        <name>Mijn Component</name>
+        <description>Automatische update voor Media Cleaner.</description>
+        <element>mediacleaner</element>
+        <type>component</type>
+        <version>1.7.6</version>
+        <client>administrator</client>
+        <infourl title="Changelog">https://github.com</infourl>
+        <downloads>
+            <downloadurl type="full" format="zip">https://github.com/download/v1.7.6/com_mediacleaner_v1.7.6.zip</downloadurl>
+        </downloads>
+        <targetplatform name="joomla" version="[45].*"/>
+    </update>
+</updates>
