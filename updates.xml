@@ -2,18 +2,18 @@
 <updates>
     <update>
         <name>Media Cleaner</name>
-        <description>COM_MEDIACLEANER_XML_DESCRIPTION</description>
+        <description>COM_MEDIACLEANER_XML_DESCRIPTION Made by Wouter (WoodyF4u). Questions, bug reports or feature requests? Please open an issue on GitHub: https://github.com/WoodyF4u/Media-Cleaner/issues</description>
         <element>com_mediacleaner</element>
         <type>component</type>
-        <version>1.7.7</version>
+        <version>1.35.0</version>
         <infourl title="Media Cleaner op GitHub">https://github.com/WoodyF4u/Media-Cleaner</infourl>
         <downloads>
-            <downloadurl type="full" format="zip">https://github.com/WoodyF4u/Media-Cleaner/releases/download/v1.7.7/com_mediacleaner_v1.7.7.zip</downloadurl>
+            <downloadurl type="full" format="zip">https://github.com/WoodyF4u/Media-Cleaner/releases/download/v1.35.0/com_mediacleaner_v1.35.0.zip</downloadurl>
         </downloads>
         <tags>
             <tag>stable</tag>
         </tags>
-        <maintainer>Media Cleaner</maintainer>
+        <maintainer>Wouter (WoodyF4u)</maintainer>
         <maintainerurl>https://github.com/WoodyF4u/Media-Cleaner</maintainerurl>
         <targetplatform name="joomla" version="6.[0-9]+"/>
     </update>
