@@ -5,15 +5,15 @@
         <description>Beheer alle mediabestanden overzichtelijk: vind ongebruikte bestanden, bekijk waar ze worden gebruikt, verwijder ze veilig en optimaliseer afbeeldingen naar WebP. --- Manage all media files efficiently: find unused files, see where they are used, delete them safely, and optimize images to WebP. --- Made by Wouter (WoodyF4u). Questions, bug reports or feature requests? Please open an issue on GitHub: https://github.com/WoodyF4u/Media-Cleaner/issues</description>
         <element>com_mediacleaner</element>
         <type>component</type>
-        <version>2.4.1</version>
+        <version>2.4.1.2</version>
         <infourl title="Media Cleaner op GitHub">https://github.com/WoodyF4u/Media-Cleaner</infourl>
         <downloads>
-            <downloadurl type="full" format="zip">https://github.com/WoodyF4u/Media-Cleaner/releases/download/v2.4.1/com_mediacleaner_v2.4.1.zip</downloadurl>
+            <downloadurl type="full" format="zip">https://github.com/WoodyF4u/Media-Cleaner/releases/download/v2.4.1.2/com_mediacleaner_v2.4.1.2.zip</downloadurl>
         </downloads>
         <tags>
             <tag>stable</tag>
         </tags>
-        <sha256>4add1a3d80639b59c237ed407bef660d50413a92b5aaf297cd4d92899cae655b</sha256>
+        <sha256>f06fae9bd3c38343bce2d6f0b087a4fac1ba9875820523a4a1b9c298c4edc827</sha256>
         <maintainer>Wouter (WoodyF4u)</maintainer>
         <maintainerurl>https://github.com/WoodyF4u/Media-Cleaner</maintainerurl>
         <targetplatform name="joomla" version="6.[0-9]+"/>
