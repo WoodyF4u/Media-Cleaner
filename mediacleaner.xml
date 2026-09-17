@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="component" method="upgrade">
+    <name>COM_MEDIACLEANER</name>
+    <element>com_mediacleaner</element>
+    <author>Wouter (WoodyF4u)</author>
+    <creationDate>11 September 2026</creationDate>
+    <copyright>Copyright (C) 2026</copyright>
+    <license>GNU General Public License version 2 or later; see LICENSE.txt</license>
+    <version>2.7.18</version>
+    <description>COM_MEDIACLEANER_XML_DESCRIPTION</description>
+
+    <namespace path="src">Joomla\Component\Mediacleaner</namespace>
+
+    <scriptfile>script.php</scriptfile>
+
+    <updateservers>
+        <server type="extension" priority="1" name="Media Cleaner Update Site">https://raw.githubusercontent.com/WoodyF4u/Media-Cleaner/main/updates.xml</server>
+    </updateservers>
+
+    <install>
+        <sql>
+            <file driver="mysql" charset="utf8">sql/install.mysql.utf8.sql</file>
+        </sql>
+    </install>
+
+    <uninstall>
+        <sql>
+            <file driver="mysql" charset="utf8">sql/uninstall.mysql.utf8.sql</file>
+        </sql>
+    </uninstall>
+
+    <update>
+        <schemas>
+            <schemapath type="mysql">sql/updates/mysql</schemapath>
+        </schemas>
+    </update>
+
+    <!--
+        Site (frontend) part. Optional for the user of this component: it
+        only becomes reachable if a menu item is created pointing at it,
+        and even then shows nothing until a user group is explicitly
+        granted the "Site: ..." permissions on the Permissions tab (see
+        admin/access.xml) - see site/src/View/Files/HtmlView.php.
+    -->
+    <files folder="site">
+        <folder>services</folder>
+        <folder>src</folder>
+        <folder>tmpl</folder>
+        <folder>language</folder>
+        <file>metadata.xml</file>
+    </files>
+
+    <languages folder="site/language">
+        <language tag="en-GB">en-GB/en-GB.com_mediacleaner.ini</language>
+        <language tag="nl-NL">nl-NL/nl-NL.com_mediacleaner.ini</language>
+    </languages>
+
+    <!--
+        Installs to JPATH_ROOT/media/com_mediacleaner/ - reachable from
+        both the site and the administrator, which is why this sits
+        outside <administration> below (a component's own <media> is
+        never split by client). Holds the two stylesheets that used to
+        be inline <style> blocks in the admin and site templates - see
+        HTMLHelper::_('stylesheet', 'com_mediacleaner/...', ...) in each
+        view's HtmlView::display().
+    -->
+    <media folder="media" destination="com_mediacleaner">
+        <folder>css</folder>
+    </media>
+
+    <administration>
+        <menu img="class:mediacleaner" link="index.php?option=com_mediacleaner&amp;view=files">COM_MEDIACLEANER</menu>
+
+        <files folder="admin">
+            <folder>services</folder>
+            <folder>src</folder>
+            <folder>tmpl</folder>
+            <folder>language</folder>
+            <folder>sql</folder>
+            <file>access.xml</file>
+            <file>config.xml</file>
+        </files>
+
+        <languages folder="admin/language">
+            <language tag="en-GB">en-GB/en-GB.com_mediacleaner.ini</language>
+            <language tag="en-GB">en-GB/en-GB.com_mediacleaner.sys.ini</language>
+            <language tag="nl-NL">nl-NL/nl-NL.com_mediacleaner.ini</language>
+            <language tag="nl-NL">nl-NL/nl-NL.com_mediacleaner.sys.ini</language>
+        </languages>
+    </administration>
+</extension>
