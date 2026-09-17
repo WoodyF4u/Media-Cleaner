@@ -22,6 +22,11 @@ jobs:
           version="${{ github.event.release.tag_name }}"
           echo "version=${version#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Update version in mediacleaner.xml
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          sed -i "s#<version>.*</version>#<version>${version}</version>#" mediacleaner.xml
+
       - name: Build installation zip
         run: |
           zip -r "com_mediacleaner_v${{ steps.version.outputs.version }}.zip" \
@@ -53,11 +58,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add updates.xml
+          git add updates.xml mediacleaner.xml
           if git diff --cached --quiet; then
             echo "Geen wijzigingen om te committen"
           else
-            git commit -m "updates.xml bijgewerkt naar v${{ steps.version.outputs.version }}"
+            git commit -m "updates.xml en mediacleaner.xml bijgewerkt naar v${{ steps.version.outputs.version }}"
             git push origin HEAD:main
           fi
 
