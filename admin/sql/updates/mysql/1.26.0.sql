@@ -1,0 +1,14 @@
+-- Corrective re-run of the 1.24.0.sql index widening: on at least one
+-- live site, System Information -> Database kept reporting
+-- `idx_unlinked_view` as missing after upgrading to 1.24.0/1.25.0, even
+-- though the rest of that update applied cleanly.
+--
+-- This originally repeated the same DROP + ADD as 1.24.0.sql. That
+-- turned out to be actively harmful: installing this exact statement
+-- aborted the *entire* package update on the live site in question (see
+-- 1.27.0.sql for the full story and the actual fix - a pure ADD under a
+-- new name, `idx_unlinked_view2`). Retroactively corrected here in
+-- v1.28.0 to match: this only changes what the System Information ->
+-- Database checker compares this already-applied file against, not
+-- anything that gets re-executed on an upgraded site.
+ALTER TABLE `#__mediacleaner_files` ADD KEY `idx_unlinked_view2` (`linked`, `ignored`, `is_thumbs_dir`, `is_active_extension_asset`, `is_active_extension_images_dir`);

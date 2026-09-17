@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<config>
+    <fieldset name="scan" label="COM_MEDIACLEANER_CONFIG_SCAN_LABEL">
+        <field
+            name="unlinked_view_heading"
+            type="note"
+            label="COM_MEDIACLEANER_CONFIG_UNLINKED_HEADING"
+            heading="h4"
+            class="mc-config-heading"
+        />
+        <field
+            name="unlinked_view_heading_style"
+            type="note"
+            class="mc-config-heading-style"
+            description="COM_MEDIACLEANER_CONFIG_HEADING_STYLE_HACK"
+        />
+        <field
+            name="hide_thumbs_from_unlinked"
+            type="radio"
+            layout="joomla.form.field.radio.switcher"
+            label="COM_MEDIACLEANER_CONFIG_HIDE_THUMBS_LABEL"
+            description="COM_MEDIACLEANER_CONFIG_HIDE_THUMBS_DESC"
+            default="1"
+            filter="integer"
+        >
+            <option value="0">JNO</option>
+            <option value="1">JYES</option>
+        </field>
+        <field
+            name="hide_active_extension_assets_from_unlinked"
+            type="radio"
+            layout="joomla.form.field.radio.switcher"
+            label="COM_MEDIACLEANER_CONFIG_HIDE_EXT_ASSETS_LABEL"
+            description="COM_MEDIACLEANER_CONFIG_HIDE_EXT_ASSETS_DESC"
+            default="1"
+            filter="integer"
+        >
+            <option value="0">JNO</option>
+            <option value="1">JYES</option>
+        </field>
+        <field
+            name="hide_active_extension_images_from_unlinked"
+            type="radio"
+            layout="joomla.form.field.radio.switcher"
+            label="COM_MEDIACLEANER_CONFIG_HIDE_EXT_IMAGES_LABEL"
+            description="COM_MEDIACLEANER_CONFIG_HIDE_EXT_IMAGES_DESC"
+            default="1"
+            filter="integer"
+        >
+            <option value="0">JNO</option>
+            <option value="1">JYES</option>
+        </field>
+    </fieldset>
+    <fieldset name="permissions" label="JCONFIG_PERMISSIONS_LABEL" description="JCONFIG_PERMISSIONS_DESC">
+        <field
+            name="rules"
+            type="rules"
+            label="JCONFIG_PERMISSIONS_LABEL"
+            validate="rules"
+            filter="rules"
+            component="com_mediacleaner"
+            section="component"
+        />
+    </fieldset>
+</config>

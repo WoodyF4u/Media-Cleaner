@@ -1,0 +1,17 @@
+-- v1.22.0 extends "Hide active component/template assets from Unlinked"
+-- to also cover modules and plugins - reuses the existing
+-- `is_active_extension_asset` column (no new column needed) since the
+-- flag's meaning was already "belongs to a currently active extension",
+-- not component/template-specific.
+--
+-- Originally added a composite covering index named `idx_unlinked_view`
+-- here. Retroactively corrected in v1.28.0 to instead declare
+-- `idx_unlinked_view2` (see that file, and 1.27.0.sql, for why the name
+-- changed and why editing old, already-applied update files' *declared*
+-- structure like this is safe): Joomla's installer only re-executes a
+-- version's SQL file if that version hasn't been applied yet, so this
+-- text change can't cause anything to run again on an upgraded site -
+-- it only changes what System Information -> Database checks this file
+-- against, so that check now matches the index that's actually there
+-- instead of a name this component no longer maintains.
+ALTER TABLE `#__mediacleaner_files` ADD KEY `idx_unlinked_view2` (`linked`, `ignored`, `is_thumbs_dir`, `is_active_extension_asset`, `is_active_extension_images_dir`);

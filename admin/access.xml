@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<access component="com_mediacleaner">
+    <section name="component">
+        <action name="core.admin" title="JACTION_ADMIN" description="JACTION_ADMIN_COMPONENT_DESC" />
+        <action name="core.manage" title="JACTION_MANAGE" description="JACTION_MANAGE_COMPONENT_DESC" />
+        <action name="mediacleaner.site.view" title="COM_MEDIACLEANER_ACL_SITE_VIEW" description="COM_MEDIACLEANER_ACL_SITE_VIEW_DESC" />
+        <action name="mediacleaner.site.ignore" title="COM_MEDIACLEANER_ACL_SITE_IGNORE" description="COM_MEDIACLEANER_ACL_SITE_IGNORE_DESC" />
+        <action name="mediacleaner.site.delete" title="COM_MEDIACLEANER_ACL_SITE_DELETE" description="COM_MEDIACLEANER_ACL_SITE_DELETE_DESC" />
+    </section>
+</access>

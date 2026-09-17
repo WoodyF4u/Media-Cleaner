@@ -1,0 +1,19 @@
+-- v1.24.0 tried to widen the existing `idx_unlinked_view` composite
+-- index in place (DROP + re-ADD under the same name). That DROP turned
+-- out to be unsafe: on a live site the index apparently didn't exist at
+-- that point (for reasons no longer reconstructible after the fact), so
+-- "DROP INDEX ...; check that it exists" failed - and a v1.26.0 attempt
+-- to repeat that same DROP+ADD confirmed the worse consequence: a
+-- failing statement partway through an update's SQL file can abort the
+-- *entire* extension update on this Joomla version, not just skip that
+-- one statement.
+--
+-- Fix: never DROP an existing index/column in an update file again. This
+-- adds the intended 5-column definition fresh, under a brand new name
+-- that has never been used before - a pure ADD can't fail this way,
+-- whatever state the old `idx_unlinked_view` happens to be in on any
+-- given site (present, absent, or the original 4-column version all
+-- work equally fine). The old index, if it exists, is simply left in
+-- place unused from here on - harmless, and not worth another risky
+-- statement to clean up.
+ALTER TABLE `#__mediacleaner_files` ADD KEY `idx_unlinked_view2` (`linked`, `ignored`, `is_thumbs_dir`, `is_active_extension_asset`, `is_active_extension_images_dir`);
