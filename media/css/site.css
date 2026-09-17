@@ -1,0 +1,83 @@
+/**
+ * Media Cleaner - site (frontend) stylesheet.
+ *
+ * Used by the frontend Files view (site/tmpl/files/) - loaded via
+ * HTMLHelper::_('stylesheet', 'com_mediacleaner/site.css', ...) from
+ * site/src/View/Files/HtmlView::display(). Everything here is scoped
+ * under .mc-site so it never leaks into the surrounding template's own
+ * styling. Edit this file directly to restyle the frontend overview.
+ */
+
+.mc-site { max-width: 100%; }
+.mc-site .mc-site-filters { margin: 0 0 14px; }
+.mc-site .mc-site-filter {
+    display: inline-block;
+    margin-right: 6px;
+    padding: 4px 12px;
+    border: 1px solid #ccc;
+    border-radius: 14px;
+    text-decoration: none;
+    color: inherit;
+    font-size: 13px;
+}
+.mc-site .mc-site-filter-active {
+    background: #2c3e50;
+    border-color: #2c3e50;
+    color: #fff;
+    font-weight: 600;
+}
+.mc-site table.mc-site-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+.mc-site table.mc-site-table th,
+.mc-site table.mc-site-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid #ddd;
+    text-align: left;
+    vertical-align: middle;
+}
+.mc-site table.mc-site-table td.mc-site-name-cell {
+    max-width: 320px;
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+.mc-site table.mc-site-table th {
+    background: #2b2f33;
+    color: #e8e8e8;
+    white-space: nowrap;
+}
+.mc-site .mc-site-path {
+    font-family: monospace;
+    font-size: 12px;
+    color: #d7dade;
+}
+.mc-site .mc-site-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+}
+.mc-site .mc-site-badge-linked { background: #27ae60; }
+.mc-site .mc-site-badge-probable { background: #d68910; }
+.mc-site .mc-site-badge-unlinked { background: #999; }
+.mc-site .mc-site-empty { padding: 20px; text-align: center; color: #d7dade; }
+.mc-site .mc-site-actions { margin: 0 0 14px; display: flex; gap: 8px; align-items: center; }
+.mc-site .mc-site-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background: #fff;
+    color: #1a1a1a;
+    cursor: pointer;
+    font-size: 12px;
+    text-decoration: none;
+}
+.mc-site .mc-site-btn-danger { background: #c0392b; border-color: #c0392b; color: #fff; }
+.mc-site .mc-site-btn-info { background: #2980b9; border-color: #2980b9; color: #fff; }

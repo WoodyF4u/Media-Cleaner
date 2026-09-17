@@ -1,0 +1,664 @@
+/**
+ * Media Cleaner - administrator stylesheet.
+ *
+ * Shared by the Files, Quarantine and Help views (admin/tmpl/files/,
+ * admin/tmpl/quarantine/, admin/tmpl/help/) - loaded via
+ * HTMLHelper::_('stylesheet', 'com_mediacleaner/admin.css', ...) from
+ * each view's HtmlView::display(). Previously this was three separate
+ * inline <style> blocks, one per template, with a lot of duplication
+ * (buttons, badges, the table, checkboxes, dark-mode overrides) - see
+ * CHANGELOG.md for the version that extracted this file. Edit this file
+ * directly to restyle the component; nothing else needs to change.
+ *
+ * A handful of selectors here only ever match elements on one of the
+ * three views (e.g. .mc-help-* only exists on the Help page, .mc-badge-
+ * camera only on Files) - that's fine, an unmatched selector costs
+ * nothing. Two small genuine differences between the Files and
+ * Quarantine markup are called out below where they occur.
+ */
+
+/* === Page header / summary line ========================================= */
+
+.mc-page-title {
+    margin: 0 0 14px;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--bs-body-color, #1a1a1a);
+}
+.mc-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    margin: 0 0 12px;
+}
+.mc-version-label {
+    flex-shrink: 0;
+    font-size: 13px;
+    color: var(--bs-body-color, #1a1a1a);
+    cursor: default;
+    pointer-events: none;
+    user-select: none;
+    white-space: nowrap;
+}
+.mc-summary {
+    margin: 0;
+    font-weight: 600;
+}
+/*
+    Quarantine's summary line isn't wrapped in its own .mc-summary-row
+    (Files' summary sits inside one, which already carries the 12px
+    bottom margin) - this extra class gives Quarantine's standalone
+    <p class="mc-summary mc-summary-standalone"> the same spacing
+    without double-margining Files' version.
+*/
+.mc-summary-standalone {
+    margin: 0 0 12px;
+}
+.mc-unlinked-hint {
+    color: var(--bs-warning-text-emphasis, #b35900);
+}
+
+/* === Table ================================================================ */
+
+table.mc-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+table.mc-table th,
+table.mc-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--bs-border-color, #ddd);
+    text-align: left;
+    vertical-align: middle;
+}
+table.mc-table td.mc-f-name-cell {
+    max-width: 320px;
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+table.mc-table th {
+    background: var(--bs-tertiary-bg, #f4f4f4);
+    white-space: nowrap;
+    color: var(--bs-body-color, #1a1a1a);
+    font-weight: 700;
+}
+table.mc-table th a.mc-sort-link,
+table.mc-table th a.mc-sort-link:link,
+table.mc-table th a.mc-sort-link:visited,
+table.mc-table th a.mc-sort-link:hover,
+table.mc-table th a.mc-sort-link:active {
+    text-decoration: none;
+    color: var(--bs-body-color, #1a1a1a) !important;
+    font-weight: 700;
+}
+table.mc-table th a.mc-sort-active {
+    font-weight: 700;
+}
+.mc-sort-icon {
+    display: inline-block;
+    font-size: 9px;
+    color: var(--bs-secondary-color, #b5b5b5);
+}
+.mc-sort-icon-active {
+    color: var(--bs-emphasis-color, #2c3e50);
+}
+.mc-sort-disabled {
+    color: var(--bs-body-color, #1a1a1a);
+    cursor: default;
+}
+.mc-path {
+    font-family: monospace;
+    font-size: 12px;
+    color: var(--bs-body-color, inherit);
+}
+.mc-empty {
+    padding: 20px;
+    text-align: center;
+    color: var(--bs-secondary-color, #666);
+}
+
+/* === Thumbnail cell / badges ============================================= */
+
+td.mc-thumb-cell {
+    width: 60px;
+    text-align: center;
+}
+td.mc-thumb-cell img {
+    display: inline-block;
+    max-width: 50px;
+    max-height: 50px;
+    width: auto;
+    height: auto;
+}
+.mc-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    height: 34px;
+    padding: 0 6px;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    border-radius: 3px;
+    margin: 0 auto;
+    white-space: nowrap;
+}
+.mc-badge-pdf {
+    background: #c0392b;
+}
+.mc-badge-video {
+    background: #2980b9;
+}
+.mc-badge-audio {
+    background: #8e44ad;
+}
+.mc-badge-doc {
+    background: #7f8c8d;
+}
+.mc-badge-camera {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    color: var(--bs-secondary-color, #999);
+}
+[data-bs-theme="dark"] .mc-badge-camera {
+    color: #a9adb0;
+}
+.mc-badge-linked {
+    background: #27ae60;
+}
+.mc-badge-probable {
+    background: #d68910;
+}
+.mc-badge-unlinked {
+    background: #999;
+}
+
+/* === Filter bar (Files view) ============================================= */
+
+.mc-filters {
+    margin: 0 0 14px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+.mc-filters a.mc-filter-link {
+    display: inline-block;
+    padding: 4px 12px;
+    border: 2px solid var(--bs-secondary-color, #6c757d);
+    border-radius: 14px;
+    text-decoration: none;
+    color: var(--bs-body-color, #333);
+    font-size: 14px;
+}
+.mc-filters a.mc-filter-active {
+    background: var(--bs-emphasis-color, #2c3e50);
+    border-color: var(--bs-emphasis-color, #2c3e50);
+    color: var(--bs-body-bg, #fff);
+    font-weight: 700;
+}
+.mc-filters a.mc-filter-link .mc-filter-count {
+    opacity: 0.7;
+    font-size: 11px;
+}
+.mc-filters a.mc-filter-active .mc-filter-count {
+    opacity: 0.85;
+}
+.mc-limitbox {
+    display: inline-block;
+    margin-left: auto;
+}
+.mc-limitbox select {
+    font-size: 14px;
+}
+.mc-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 14px;
+}
+.mc-pagination-counter {
+    font-size: 13px;
+    color: var(--bs-secondary-color, #6c757d);
+}
+.mc-pagination .pagination {
+    margin: 0;
+}
+
+/* === Notices =============================================================== */
+
+.mc-notice {
+    margin: 0 0 14px;
+    padding: 10px 14px;
+    background: var(--bs-warning-bg-subtle, #fff8e1);
+    border: 1px solid var(--bs-warning-border-subtle, #ffe0a3);
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--bs-warning-text-emphasis, #6b5300);
+}
+
+/* === Action bars / buttons ================================================ */
+
+.mc-actions-bar {
+    margin: 0 0 14px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.mc-bulk-label {
+    font-size: 13px;
+    color: var(--bs-body-color, #1a1a1a);
+}
+.mc-bulk-select {
+    padding: 5px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--bs-border-color, #ccc);
+    background: var(--bs-body-bg, #fff);
+    color: var(--bs-body-color, #1a1a1a);
+    font-size: 13px;
+}
+.mc-select-all-matching-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--bs-body-color, #1a1a1a);
+    cursor: pointer;
+}
+.mc-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 4px;
+    border: 1px solid var(--bs-border-color, #ccc);
+    background: var(--bs-body-bg, #fff);
+    color: var(--bs-body-color, #1a1a1a);
+    cursor: pointer;
+    font-size: 13px;
+}
+.mc-btn svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    display: block;
+}
+.mc-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.mc-btn-restore {
+    background: #27ae60;
+    border-color: #27ae60;
+    color: #fff;
+}
+.mc-btn-restore:hover:not(:disabled) {
+    background: #1e8449;
+    border-color: #1e8449;
+}
+.mc-btn-purge {
+    background: #c0392b;
+    border-color: #c0392b;
+    color: #fff;
+}
+.mc-btn-purge:hover:not(:disabled) {
+    background: #922b21;
+    border-color: #922b21;
+}
+.mc-btn-bulk-ignore {
+    background: #2980b9;
+    border-color: #2980b9;
+    color: #fff;
+}
+.mc-btn-bulk-ignore:hover:not(:disabled) {
+    background: #21618c;
+    border-color: #21618c;
+}
+.mc-btn-bulk-unignore {
+    background: #7f8c8d;
+    border-color: #7f8c8d;
+    color: #fff;
+}
+.mc-btn-bulk-unignore:hover:not(:disabled) {
+    background: #626e6f;
+    border-color: #626e6f;
+}
+.mc-webp-btn {
+    background: #16a085;
+    border-color: #16a085;
+}
+a.mc-webp-btn,
+a.mc-webp-btn:link,
+a.mc-webp-btn:visited,
+a.mc-webp-btn:hover,
+a.mc-webp-btn:active {
+    color: #fff !important;
+    text-decoration: none !important;
+}
+.mc-webp-btn:hover {
+    background: #117a65;
+    border-color: #117a65;
+}
+
+/* === Row icons (restore / purge) ========================================== */
+
+.mc-row-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-size: 14px;
+    text-decoration: none;
+    flex: 0 0 auto;
+}
+.mc-row-icon svg {
+    width: 15px;
+    height: 15px;
+    display: block;
+}
+.mc-row-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+}
+.mc-row-icon-restore {
+    background: #27ae60;
+    color: #fff;
+}
+.mc-row-icon-restore:hover {
+    background: #1e8449;
+}
+.mc-row-icon-purge {
+    background: #c0392b;
+    color: #fff;
+}
+.mc-row-icon-purge:hover {
+    background: #922b21;
+}
+/*
+    Reinforces the colours above with !important - v2.3.8 fix: Joomla
+    admin's own Bootstrap table-link styling (a more specific compound
+    selector like `.table a`) otherwise wins the cascade over the
+    single-class selectors above, once these icons became colour-
+    following SVGs instead of Unicode glyphs (which used to ignore CSS
+    color entirely, hiding the conflict).
+*/
+a.mc-row-icon-restore,
+a.mc-row-icon-restore:link,
+a.mc-row-icon-restore:visited,
+a.mc-row-icon-restore:hover,
+a.mc-row-icon-restore:active,
+a.mc-row-icon-purge,
+a.mc-row-icon-purge:link,
+a.mc-row-icon-purge:visited,
+a.mc-row-icon-purge:hover,
+a.mc-row-icon-purge:active {
+    color: #fff !important;
+    text-decoration: none !important;
+}
+.mc-ignore-btn {
+    display: inline-flex;
+    align-items: center;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 4px;
+    border: 1px solid #2980b9;
+    background: #2980b9;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+a.mc-ignore-btn,
+a.mc-ignore-btn:link,
+a.mc-ignore-btn:visited,
+a.mc-ignore-btn:hover,
+a.mc-ignore-btn:active {
+    color: #fff !important;
+    text-decoration: none !important;
+}
+.mc-ignore-btn:hover {
+    background: #21618c;
+    border-color: #21618c;
+}
+.mc-unignore-btn {
+    background: #7f8c8d;
+    border-color: #7f8c8d;
+}
+.mc-unignore-btn:hover {
+    background: #626e6f;
+    border-color: #626e6f;
+}
+.mc-action-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+}
+
+/* === Misc row content ====================================================== */
+
+.mc-ignored-tag {
+    display: block;
+    font-size: 10px;
+    color: var(--bs-secondary-color, #888);
+    margin-top: 2px;
+}
+.mc-selected-count {
+    font-size: 12px;
+    color: var(--bs-secondary-color, #666);
+}
+.mc-refs {
+    margin-top: 4px;
+}
+.mc-ref-line {
+    font-size: 11px;
+    color: var(--bs-secondary-color, #555);
+    line-height: 1.5;
+}
+.mc-ref-line a {
+    color: var(--bs-link-color, #2980b9);
+}
+.mc-orphan-hint {
+    margin-top: 3px;
+    font-size: 11px;
+    font-style: italic;
+    color: var(--bs-secondary-color, #555);
+}
+
+/* === Checkboxes (theme-aware, custom rendering) =========================== */
+
+input[type="checkbox"].form-check-input {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    border: 1.5px solid #000;
+    border-radius: 3px;
+    background-color: transparent;
+    cursor: pointer;
+    position: relative;
+    vertical-align: middle;
+}
+input[type="checkbox"].form-check-input:checked {
+    background-color: #3a5068;
+    border-color: #3a5068;
+}
+input[type="checkbox"].form-check-input:checked::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 2px;
+    width: 4px;
+    height: 8px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+/* === Rescan progress overlay =============================================== */
+
+#mc-rescan-overlay {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px;
+    margin: 0 0 14px;
+    background: var(--bs-body-bg, #fff);
+    border: 1px solid var(--bs-border-color, #ddd);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--bs-body-color, #333);
+}
+.mc-rescan-bar-track {
+    flex: 1 1 auto;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bs-secondary-bg, #e5e5e5);
+    overflow: hidden;
+}
+.mc-rescan-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: #2980b9;
+    border-radius: 3px;
+    transition: width 0.2s linear;
+}
+.mc-rescan-label {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+/* === Help page ============================================================= */
+
+.mc-help-intro {
+    margin: 0 0 20px;
+    padding: 12px 16px;
+    background: var(--bs-tertiary-bg, #f4f4f4);
+    border-radius: 4px;
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--bs-body-color, #1a1a1a);
+}
+.mc-help-section-title {
+    margin: 0 0 12px;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--bs-body-color, #1a1a1a);
+}
+.mc-help-item {
+    margin: 0 0 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--bs-border-color, #ddd);
+}
+.mc-help-item:last-child {
+    border-bottom: none;
+}
+.mc-help-item-title {
+    margin: 0 0 4px;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--bs-body-color, #1a1a1a);
+}
+.mc-help-item-body {
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--bs-secondary-color, #555);
+}
+[data-bs-theme="dark"] .mc-help-item-body {
+    color: #a9adb0;
+}
+.mc-help-summary-row {
+    display: flex;
+    justify-content: flex-end;
+    align-items: baseline;
+    margin: 0 0 14px;
+}
+.mc-help-version-label {
+    flex-shrink: 0;
+    font-size: 13px;
+    color: var(--bs-body-color, #1a1a1a);
+    cursor: default;
+    pointer-events: none;
+    user-select: none;
+    white-space: nowrap;
+}
+
+/* === Dark mode overrides ===================================================
+   The var(--bs-...) fallbacks above didn't reliably take effect for every
+   element, so these guarantee correct contrast whenever Joomla's dark mode
+   is active (data-bs-theme="dark" is the attribute Joomla itself sets). */
+
+[data-bs-theme="dark"] .mc-version-label {
+    color: #d7dade;
+}
+[data-bs-theme="dark"] table.mc-table th {
+    background: #2b2f33;
+    color: #e8e8e8;
+}
+[data-bs-theme="dark"] table.mc-table th a.mc-sort-link,
+[data-bs-theme="dark"] table.mc-table th a.mc-sort-link:link,
+[data-bs-theme="dark"] table.mc-table th a.mc-sort-link:visited,
+[data-bs-theme="dark"] table.mc-table th a.mc-sort-link:hover,
+[data-bs-theme="dark"] table.mc-table th a.mc-sort-link:active,
+[data-bs-theme="dark"] .mc-sort-disabled {
+    color: #e8e8e8 !important;
+}
+[data-bs-theme="dark"] table.mc-table th,
+[data-bs-theme="dark"] table.mc-table td {
+    border-bottom-color: #495057;
+}
+[data-bs-theme="dark"] .mc-filters a.mc-filter-link {
+    color: #e8e8e8;
+    border-color: #8a9096;
+}
+[data-bs-theme="dark"] .mc-filters a.mc-filter-active {
+    background: #3a5068;
+    border-color: #3a5068;
+    color: #fff;
+}
+[data-bs-theme="dark"] .mc-notice {
+    background: #4a3c00;
+    border-color: #6b5300;
+    color: #ffdd8a;
+}
+[data-bs-theme="dark"] .mc-empty,
+[data-bs-theme="dark"] .mc-selected-count,
+[data-bs-theme="dark"] .mc-ignored-tag,
+[data-bs-theme="dark"] .mc-ref-line,
+[data-bs-theme="dark"] .mc-select-all-matching-label,
+[data-bs-theme="dark"] .mc-orphan-hint {
+    color: #a9adb0;
+}
+[data-bs-theme="dark"] .mc-ref-line a {
+    color: #6ea8fe;
+}
+[data-bs-theme="dark"] .mc-btn:not(.mc-btn-purge):not(.mc-btn-restore):not(.mc-btn-bulk-ignore):not(.mc-btn-bulk-unignore) {
+    background: #2b2f33;
+    border-color: #5a5f64;
+    color: #e8e8e8;
+}
+[data-bs-theme="dark"] input[type="checkbox"].form-check-input {
+    background-color: transparent;
+    border-color: #fff;
+}
+[data-bs-theme="dark"] input[type="checkbox"].form-check-input:checked {
+    background-color: #3a5068;
+    border-color: #3a5068;
+}
