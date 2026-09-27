@@ -3,6 +3,71 @@
 Elke regel is ook een test die je na installatie kunt aflopen om te
 controleren of een functie daadwerkelijk is meegenomen.
 
+## 2.8.1
+
+- **Thumbnails die een module per artikel maakt worden nu ook gekoppeld.**
+  Zulke bestanden heten alleen naar ID's, zonder de naam van de
+  originele afbeelding. Voorbeeld (Fooruit): Mini FrontPage schrijft
+  `images/thumbnails/mod_minifrontpage/168_164.png` voor "artikel 168 in
+  module 164"; de 2.8.0-herkenning kon daar niets mee.
+- Generiek, niet alleen voor Mini FrontPage. Een bestand komt in
+  aanmerking als het (1) in een map `mod_<naam>` staat en (2) een naam
+  heeft die alleen uit 2-4 getallen bestaat (`168_164.png`). Daarna wordt
+  gecontroleerd dat een van de getallen een module van precies dat type
+  is en alle andere getallen bestaande artikelen zijn.
+- Module en artikel(en) gepubliceerd: blauw label "Gekoppeld via
+  origineel" met "Afgeleid van: artikel 168 "…", module 164 "…"".
+  Module of artikel niet (meer) gepubliceerd: blijft onder Niet
+  gekoppeld, met de melding dat het bestand veilig weg kan.
+- Klopt het niet precies (onbekend ID, ander ID-schema, geen
+  `mod_`-map), dan blijft het bestand zoals het was. Datums als
+  `2023-11-24.pdf` vallen er dus nooit onder.
+- Bewuste keuze: een thumbnail van een artikel dat nog gepubliceerd is
+  maar niet meer in de module past (bv. het 4e artikel bij een module
+  die er 3 toont) blijft gekoppeld. Welke artikelen een module *nu*
+  toont is de eigen logica van die module.
+- Geen schema-wijziging.
+- Test: installeer deze update en laat de herscan afronden. Op een site
+  met Mini FrontPage horen de bestanden in
+  `images/thumbnails/mod_minifrontpage/` onder Gekoppelde media te staan,
+  met de artikel- en moduletitel eronder.
+
+## 2.8.0
+
+- **Automatisch gemaakte thumbnails en verkleinde kopieën worden nu
+  herkend en gekoppeld aan hun origineel.** Voorheen stond bijvoorbeeld
+  elk bestand in `images/eventgallery_generated/` (Event Gallery) onder
+  "Niet gekoppeld", ook al hoorde het bij een foto die gewoon in een
+  event zit. Op de Metius-site ging het om 1.078 bestanden.
+- De herkenning is generiek, niet per extensie. Een bestand geldt als
+  afgeleid als (1) de naam een formaat- of variantmarkering heeft rond de
+  naam van het origineel - `nocrop_512_foto.jpg`, `phoca_thumb_l_foto.jpg`,
+  `foto-300x200.jpg`, `foto@2x.jpg`, `foto.jpg.webp` - en/of (2) het in een
+  afgeleide map staat: een parallelle map (`eventgallery_generated` naast
+  `eventgallery`), een submap (`album/thumbs`), een spiegelmap
+  (`webp-cache/blog` voor `blog`) of een map naast `originals`. Het
+  origineel moet daarbij echt in de scan voorkomen.
+- Drie uitkomsten, elk met een eigen toelichting in het overzicht:
+  1. Origineel gekoppeld: blauw label "Gekoppeld via origineel", met
+     "Afgeleid van: …" eronder.
+  2. Origineel bestaat maar is niet gekoppeld: blijft onder Niet
+     gekoppeld, met de tip om ze samen op te ruimen.
+  3. Origineel bestaat niet meer: blijft onder Niet gekoppeld, met de
+     melding dat het bestand veilig weg kan.
+- Bewust niet als afgeleid gezien: woordmarkeringen (`-sm`, `_thumb`) in
+  dezelfde map als het origineel (bv. `logo-sm.png` naast `logo.png`), een
+  getal vooraan (`2020_foto.jpg` naast `foto.jpg`) en `foto.webp` naast
+  `foto.jpg` (dat maakt "Converteer naar WebP" zelf).
+- Nieuwe optie "Afgeleide bestanden koppelen aan hun origineel"
+  (standaard aan).
+- Schema-wijziging: twee nieuwe kolommen `derived_from` en
+  `derived_status` in `#__mediacleaner_files` (`2.8.0.sql`).
+- Test: installeer deze update en laat de automatische herscan
+  afronden. Open Gekoppelde media - bestanden uit
+  `images/eventgallery_generated/` horen daar te staan met het blauwe
+  label en de regel "Afgeleid van: …". Staan er al Event Gallery-
+  thumbnails onder Genegeerde media, zet die eerst terug.
+
 ## 2.7.18
 
 - **Na een update (of een herstelde bestand uit "Tijdelijk verwijderd")

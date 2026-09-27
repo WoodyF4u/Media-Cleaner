@@ -404,6 +404,8 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
                                 <div class="mc-derived-hint"><?php echo Text::sprintf('COM_MEDIACLEANER_DERIVED_LINKED_HINT', htmlspecialchars((string) $item['derivedFrom'])); ?></div>
                             <?php elseif (($item['derivedStatus'] ?? null) === 'unlinked_original') : ?>
                                 <div class="mc-orphan-hint"><?php echo Text::sprintf('COM_MEDIACLEANER_DERIVED_UNLINKED_HINT', htmlspecialchars((string) $item['derivedFrom'])); ?></div>
+                            <?php elseif (($item['derivedStatus'] ?? null) === 'inactive_source') : ?>
+                                <div class="mc-orphan-hint"><?php echo Text::sprintf('COM_MEDIACLEANER_DERIVED_INACTIVE_HINT', htmlspecialchars((string) $item['derivedFrom'])); ?></div>
                             <?php elseif (($item['derivedStatus'] ?? null) === 'missing_original') : ?>
                                 <div class="mc-orphan-hint"><?php echo Text::_('COM_MEDIACLEANER_DERIVED_MISSING_HINT'); ?></div>
                             <?php elseif (!empty($item['assetDirExtensionName'])) : ?>

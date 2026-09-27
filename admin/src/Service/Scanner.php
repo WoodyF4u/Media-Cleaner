@@ -219,7 +219,7 @@ class Scanner
         // applyAutoIgnoreThumbs() (a derivative of a linked original is
         // now linked itself, so it must never be auto-ignored).
         $items = $this->linkDerivedFilesEnabled()
-            ? $this->applyDerivedFileLinking($items)
+            ? $this->applyIdNamedCacheLinking($this->applyDerivedFileLinking($items))
             : $this->withEmptyDerivedInfo($items);
 
         $items = $this->markIgnoredStatus($items);
@@ -2238,6 +2238,240 @@ class Scanner
         unset($item);
 
         return $items;
+    }
+
+    /**
+     * v2.8.1 - second, complementary derived-file convention: cache files
+     * a *module* generates per article and names purely by database IDs,
+     * with nothing of the original's file name left in them. Concrete
+     * case: Mini FrontPage writes
+     * /images/thumbnails/mod_minifrontpage/168_164.png for "article 168,
+     * shown in module 164" - applyDerivedFileLinking() can never match
+     * that, since there is no name to strip a marker from.
+     *
+     * Generic, not tied to Mini FrontPage. A file qualifies when BOTH:
+     * - it sits in a folder named after a module ("mod_<name>" segment
+     *   anywhere in its path), and
+     * - its name is nothing but 2-4 numbers joined by "_" or "-"
+     *   ("168_164.png").
+     * The folder requirement is what keeps this safe: plain dated files
+     * like "2023-11-24.pdf" are common content and never qualify on
+     * their name alone.
+     *
+     * The numbers are then checked against the database:
+     * - one of them must be a module of exactly that type
+     *   (`#__modules`.`module` = the folder's "mod_<name>"), and
+     * - every other number must be an article (`#__content`).
+     *
+     * Result:
+     * - module published AND every article published -> linked,
+     *   `link_confidence` = 'derived', `derived_status` =
+     *   'linked_original', `derived_from` = a readable description
+     *   ("artikel 168 "..." in module 164 "...""). Same trade-off as
+     *   every other derived link: it stays linked for as long as its
+     *   source exists and is published; whether the module happens to
+     *   show that article *today* (e.g. only the newest 3) is that
+     *   module's own query and deliberately not second-guessed here -
+     *   a thumbnail of an article that dropped out is harmless, and
+     *   the module regenerates it if the article comes back.
+     * - module or an article gone/unpublished/trashed -> stays
+     *   unlinked, `derived_status` = 'inactive_source', with a hint
+     *   that the file is safe to delete.
+     * - numbers that don't resolve as module + articles at all (some
+     *   other ID scheme) -> left untouched, exactly as before.
+     *
+     * @param   array  $items  Items after applyDerivedFileLinking().
+     *
+     * @return  array
+     */
+    protected function applyIdNamedCacheLinking(array $items)
+    {
+        $candidates = [];
+        $moduleIds  = [];
+        $articleIds = [];
+
+        foreach ($items as $idx => $item) {
+            if (!empty($item['linked']) || !empty($item['derivedStatus'])) {
+                continue;
+            }
+
+            $moduleType = $this->getModuleFolderSegment($item['path']);
+
+            if ($moduleType === null) {
+                continue;
+            }
+
+            if (!preg_match('~^(\d{1,10}(?:[_\-]\d{1,10}){1,3})\.[a-z0-9]+$~i', $item['name'], $m)) {
+                continue;
+            }
+
+            $numbers = array_map('intval', preg_split('~[_\-]~', $m[1]));
+
+            $candidates[$idx] = ['module' => $moduleType, 'numbers' => $numbers];
+
+            foreach ($numbers as $n) {
+                $moduleIds[$n]  = true;
+                $articleIds[$n] = true;
+            }
+        }
+
+        if (empty($candidates)) {
+            return $items;
+        }
+
+        $modules  = $this->loadModulesByIds(array_keys($moduleIds));
+        $articles = $this->loadArticlesByIds(array_keys($articleIds));
+
+        foreach ($candidates as $idx => $candidate) {
+            // Which number is the module? The one whose row is a module
+            // of exactly this folder's type - usually the last, but the
+            // order isn't assumed.
+            $moduleId = null;
+
+            foreach ($candidate['numbers'] as $n) {
+                if (isset($modules[$n]) && strtolower($modules[$n]['module']) === $candidate['module']) {
+                    $moduleId = $n;
+                    break;
+                }
+            }
+
+            $others = $candidate['numbers'];
+
+            if ($moduleId !== null) {
+                unset($others[array_search($moduleId, $others, true)]);
+            }
+
+            $othersAreArticles = !empty($others);
+
+            foreach ($others as $n) {
+                if (!isset($articles[$n])) {
+                    $othersAreArticles = false;
+                    break;
+                }
+            }
+
+            if ($moduleId === null || !$othersAreArticles) {
+                // Only act when the whole name resolves: a module of
+                // this exact type plus existing articles. Anything else
+                // (module deleted outright, or a module using some other
+                // ID scheme - K2 items, events, ...) can't be verified,
+                // so it's left exactly as it was: plain "Niet gekoppeld",
+                // never a "safe to delete" claim we can't back up.
+                continue;
+            }
+
+            $parts = [];
+
+            foreach ($others as $n) {
+                $parts[] = Text::sprintf('COM_MEDIACLEANER_DERIVED_SOURCE_ARTICLE', $n, trim((string) $articles[$n]['title']));
+            }
+
+            $parts[] = Text::sprintf('COM_MEDIACLEANER_DERIVED_SOURCE_MODULE', $moduleId, trim((string) $modules[$moduleId]['title']));
+
+            // Trashed (-2), unpublished (0) or archived (2) all count as
+            // "not shown" - archived articles don't appear in these
+            // listing modules either.
+            $active = (int) $modules[$moduleId]['published'] === 1;
+
+            foreach ($others as $n) {
+                if ((int) $articles[$n]['state'] !== 1) {
+                    $active = false;
+                }
+            }
+
+            $items[$idx]['derivedFrom'] = implode(', ', $parts);
+
+            if ($active) {
+                $items[$idx]['linked']         = true;
+                $items[$idx]['linkConfidence'] = 'derived';
+                $items[$idx]['derivedStatus']  = 'linked_original';
+            } else {
+                $items[$idx]['derivedStatus'] = 'inactive_source';
+            }
+        }
+
+        return $items;
+    }
+
+    /**
+     * The "mod_<name>" folder segment of a path, lowercased, or null.
+     *
+     * @param   string  $path
+     *
+     * @return  string|null
+     */
+    protected function getModuleFolderSegment($path)
+    {
+        foreach (explode('/', trim($path, '/')) as $segment) {
+            if (preg_match('~^mod_[a-z0-9_]+$~i', $segment)) {
+                return strtolower($segment);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Modules by id: [id => ['module', 'title', 'published']].
+     *
+     * @param   int[]  $ids
+     *
+     * @return  array
+     */
+    protected function loadModulesByIds(array $ids)
+    {
+        return $this->loadRowsByIds('#__modules', ['id', 'module', 'title', 'published'], $ids);
+    }
+
+    /**
+     * Articles by id: [id => ['title', 'state']].
+     *
+     * @param   int[]  $ids
+     *
+     * @return  array
+     */
+    protected function loadArticlesByIds(array $ids)
+    {
+        return $this->loadRowsByIds('#__content', ['id', 'title', 'state'], $ids);
+    }
+
+    /**
+     * @param   string  $table
+     * @param   array   $columns  Must include 'id'.
+     * @param   int[]   $ids
+     *
+     * @return  array  [id => row]
+     */
+    protected function loadRowsByIds($table, array $columns, array $ids)
+    {
+        $ids = array_values(array_filter(array_map('intval', $ids)));
+
+        if (empty($ids)) {
+            return [];
+        }
+
+        $db     = $this->db;
+        $result = [];
+
+        try {
+            foreach (array_chunk($ids, 500) as $chunk) {
+                $query = $db->getQuery(true)
+                    ->select($db->quoteName($columns))
+                    ->from($db->quoteName($table))
+                    ->where($db->quoteName('id') . ' IN (' . implode(',', $chunk) . ')');
+
+                $db->setQuery($query);
+
+                foreach ((array) $db->loadAssocList() as $row) {
+                    $result[(int) $row['id']] = $row;
+                }
+            }
+        } catch (\Exception $e) {
+            // Can't verify - return what we have; unverifiable files
+            // simply stay as they were.
+        }
+
+        return $result;
     }
 
     /**
