@@ -63,6 +63,7 @@
 }
 .mc-site .mc-site-badge-linked { background: #27ae60; }
 .mc-site .mc-site-badge-probable { background: #d68910; }
+.mc-site .mc-site-badge-derived { background: #2e86c1; }
 .mc-site .mc-site-badge-unlinked { background: #999; }
 .mc-site .mc-site-empty { padding: 20px; text-align: center; color: #d7dade; }
 .mc-site .mc-site-actions { margin: 0 0 14px; display: flex; gap: 8px; align-items: center; }

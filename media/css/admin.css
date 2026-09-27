@@ -175,6 +175,19 @@ td.mc-thumb-cell img {
 .mc-badge-probable {
     background: #d68910;
 }
+/* v2.8.0: linked only through its original (generated thumbnail etc.) */
+.mc-badge-derived {
+    background: #2e86c1;
+}
+.mc-derived-hint {
+    margin-top: 3px;
+    font-size: 11px;
+    color: var(--bs-secondary-color, #555);
+    word-break: break-all;
+}
+[data-bs-theme="dark"] .mc-derived-hint {
+    color: #a9adb0;
+}
 .mc-badge-unlinked {
     background: #999;
 }
