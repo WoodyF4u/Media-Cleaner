@@ -94,6 +94,8 @@ $formatSize = function (float $sizeKB) {
                             <td>
                                 <?php if (($item['linkConfidence'] ?? 'none') === 'confirmed') : ?>
                                     <span class="mc-site-badge mc-site-badge-linked"><?php echo Text::_('COM_MEDIACLEANER_LINKED_YES'); ?></span>
+                                <?php elseif (($item['linkConfidence'] ?? 'none') === 'derived') : ?>
+                                    <span class="mc-site-badge mc-site-badge-derived" title="<?php echo htmlspecialchars(Text::sprintf('COM_MEDIACLEANER_DERIVED_LINKED_HINT', (string) ($item['derivedFrom'] ?? ''))); ?>"><?php echo Text::_('COM_MEDIACLEANER_LINKED_DERIVED'); ?></span>
                                 <?php elseif (($item['linkConfidence'] ?? 'none') === 'probable') : ?>
                                     <span class="mc-site-badge mc-site-badge-probable" title="<?php echo htmlspecialchars(Text::_('COM_MEDIACLEANER_LINKED_PROBABLE_HINT')); ?>"><?php echo Text::_('COM_MEDIACLEANER_LINKED_PROBABLE'); ?></span>
                                 <?php else : ?>
