@@ -3,6 +3,25 @@
 Elke regel is ook een test die je na installatie kunt aflopen om te
 controleren of een functie daadwerkelijk is meegenomen.
 
+## 2.8.2
+
+- **Afbeeldingen waarvan de naam in een artikel met `%20` (of een andere
+  %-code) staat, worden nu herkend.** Editors als JCE schrijven een
+  bestandsnaam met spaties vaak als
+  `src="images/Stress%20meten%20biofeedback.jpg"`. Media Cleaner knipte
+  dat op bij het `%`-teken en vond daardoor niets. Gevolg op VABS: twee
+  afbeeldingen die in gepubliceerde artikelen staan
+  (`images/Stress meten biofeedback.jpg` in "Wat is Biofeedback?" en
+  "Stress meten op de werkvloer", `images/stories/resultaten grafiek.JPG`
+  in "Chronische stress meten") stonden onder Niet gekoppeld.
+- Elke tekst met een %-code wordt nu ook in gedecodeerde vorm doorzocht;
+  ook de regel "gebruikt in" onder Gekoppelde media vindt zulke
+  verwijzingen.
+- Geen schema-wijziging.
+- Test: installeer deze update en laat de herscan afronden. Op VABS
+  horen beide bestanden onder Gekoppelde media te staan, met de
+  genoemde artikelen eronder.
+
 ## 2.8.1
 
 - **Thumbnails die een module per artikel maakt worden nu ook gekoppeld.**

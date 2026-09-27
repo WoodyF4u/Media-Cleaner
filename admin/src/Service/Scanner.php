@@ -2759,6 +2759,29 @@ class Scanner
      */
     protected function matchIndexedCandidates(array &$items, array $values, array $index)
     {
+        // v2.8.2: URL-encoded references. Editors (JCE, TinyMCE) often
+        // write a file name with spaces as
+        // src="images/Stress%20meten%20biofeedback.jpg". The candidate
+        // regex doesn't include '%', so that used to be cut up into
+        // "20biofeedback.jpg" and matched nothing - two images used in
+        // published VABS articles showed up as "Niet gekoppeld". Any
+        // value containing a percent-escape is now scanned a second
+        // time in decoded form. rawurldecode() (not urldecode()) so a
+        // literal '+' in a file name stays a '+'.
+        $decoded = [];
+
+        foreach ($values as $text) {
+            $text = (string) $text;
+
+            if ($text !== '' && strpos($text, '%') !== false && preg_match('~%[0-9a-f]{2}~i', $text)) {
+                $decoded[] = rawurldecode($text);
+            }
+        }
+
+        if ($decoded) {
+            $values = array_merge(array_values($values), $decoded);
+        }
+
         foreach ($values as $text) {
             $text = (string) $text;
 
@@ -3231,6 +3254,21 @@ class Scanner
             $relative,
             str_replace('/', '\\/', $relative),
         ];
+
+        // v2.8.2: same file written URL-encoded ("Stress%20meten.jpg"),
+        // so a file linked via an encoded reference also gets its
+        // "gebruikt in" line - see matchIndexedCandidates().
+        if (preg_match('~[^A-Za-z0-9_.\-/]~', $relative)) {
+            $spacesOnly = str_replace(' ', '%20', $relative);
+            $fully      = implode('/', array_map('rawurlencode', explode('/', $relative)));
+
+            foreach (array_unique([$spacesOnly, $fully]) as $encoded) {
+                if ($encoded !== $relative) {
+                    $candidates[] = $encoded;
+                    $candidates[] = str_replace('/', '\\/', $encoded);
+                }
+            }
+        }
 
         foreach ($candidates as $candidate) {
             if ($candidate !== '' && stripos($haystack, $candidate) !== false) {
