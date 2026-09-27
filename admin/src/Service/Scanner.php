@@ -213,6 +213,15 @@ class Scanner
         $items = $this->scanFilesystem();
         $items = $this->applyManualUploadOutlierDetection($items);
         $items = $this->markLinkedStatus($items);
+
+        // v2.8.0: must run after markLinkedStatus() (needs each
+        // original's own 'linked' result) and before markIgnoredStatus()/
+        // applyAutoIgnoreThumbs() (a derivative of a linked original is
+        // now linked itself, so it must never be auto-ignored).
+        $items = $this->linkDerivedFilesEnabled()
+            ? $this->applyDerivedFileLinking($items)
+            : $this->withEmptyDerivedInfo($items);
+
         $items = $this->markIgnoredStatus($items);
         $items = $this->applyAutoIgnoreThumbs($items);
         $items = $this->markActiveExtensionAssetStatus($items);
@@ -220,8 +229,13 @@ class Scanner
         $items = $this->applyExtensionFolderSegmentOverride($items, ['canvas', 'fonts'], true);
         $items = $this->applyActiveExtensionFilenameOverride($items);
 
+        // Derived files (v2.8.0) are linked through their original, never
+        // referenced directly anywhere - searching every content table
+        // for them again in buildReferenceIndex() would only cost time
+        // (1000+ Event Gallery thumbnails on a modest site) and find
+        // nothing. The overview shows their original instead.
         $linkedItems = array_values(array_filter($items, static function ($item) {
-            return $item['linked'];
+            return $item['linked'] && ($item['linkConfidence'] ?? '') !== 'derived';
         }));
 
         $referenceIndex = $this->buildReferenceIndex($linkedItems);
@@ -2005,6 +2019,366 @@ class Scanner
         }
 
         return $items;
+    }
+
+    /**
+     * Folder-name words that mark a folder as holding generated/derived
+     * copies of files that live elsewhere (v2.8.0, see
+     * applyDerivedFileLinking()). Used three ways on a single path
+     * segment: as the whole segment ("thumbs", "cache"), as a suffix of
+     * it ("eventgallery_generated", "gallery-thumbs") or as a prefix
+     * ("thumbs_gallery").
+     *
+     * @var array
+     */
+    protected $derivedFolderWords = [
+        'thumb', 'thumbs', 'thumbnail', 'thumbnails', 'tmb',
+        'cache', 'cached', 'generated', 'resized', 'resize', 'sized',
+        'preview', 'previews', 'crop', 'crops', 'small', 'medium', 'large', 'mini',
+    ];
+
+    /**
+     * Folder names an extension commonly keeps its *originals* in, next
+     * to a derived folder - e.g. JoomGallery's
+     * /images/joomgallery/thumbnails/<cat>/x.jpg next to
+     * /images/joomgallery/originals/<cat>/x.jpg. A whole-segment derived
+     * folder is also tried with each of these in its place.
+     *
+     * @var array
+     */
+    protected $derivedOriginalFolderWords = ['originals', 'original', 'orig', 'source', 'src', 'full', 'fullsize', 'uploads'];
+
+    /**
+     * Whether derived files (generated thumbnails and resized copies of
+     * another scanned file) inherit their original's linked status.
+     * Opties toggle, default on.
+     *
+     * @return  boolean
+     */
+    protected function linkDerivedFilesEnabled()
+    {
+        return (int) ComponentHelper::getParams('com_mediacleaner')->get('link_derived_files', 1) === 1;
+    }
+
+    /**
+     * Give every item the (empty) derived-file fields, so persistence
+     * never has to guess whether applyDerivedFileLinking() ran.
+     *
+     * @param   array  $items
+     *
+     * @return  array
+     */
+    protected function withEmptyDerivedInfo(array $items)
+    {
+        foreach ($items as &$item) {
+            $item['derivedFrom']   = null;
+            $item['derivedStatus'] = null;
+        }
+
+        unset($item);
+
+        return $items;
+    }
+
+    /**
+     * v2.8.0 - generic, extension-agnostic detection of *derived* files:
+     * thumbnails and resized copies an extension generates itself from
+     * an original that also lives on disk. Nothing in the database ever
+     * refers to such a file directly (the extension computes its name on
+     * the fly), so the text-search passes can never link it - which is
+     * why e.g. every one of Event Gallery's 1000+ files in
+     * /images/eventgallery_generated/ used to show up as "Niet gekoppeld"
+     * while the originals in /images/eventgallery/ were linked fine.
+     *
+     * Instead of knowing each extension's naming scheme, this recognises
+     * the two conventions virtually all of them follow, and then only
+     * accepts a match when the original it points to *actually exists in
+     * this scan* - that last check is what keeps false positives out:
+     *
+     * 1. The name carries a size/variant marker around the original's
+     *    name: "nocrop_512_x.jpg" (Event Gallery), "phoca_thumb_l_x.jpg"
+     *    (Phoca Gallery), "x-300x200.jpg" (WordPress-style), "x@2x.png",
+     *    "x-800w.jpg", "thumb_x.jpg", "x_small.jpg", and double
+     *    extensions like "x.jpg.webp".
+     * 2. The folder is a derived folder of the original's folder: a
+     *    parallel folder ("eventgallery_generated/<f>" next to
+     *    "eventgallery/<f>"), or a cache subfolder ("<f>/thumbs" or
+     *    "<f>/cache" under "<f>"), or a sibling of an "originals" folder.
+     *
+     * A same-folder match (rule 1 only) is restricted to *numeric* size
+     * markers ("nocrop_512_", "-300x200", "@2x", "-800w"). A word marker
+     * ("-sm", "_thumb") in the same folder is too often a separate,
+     * hand-made asset - e.g. a template's "logo-sm.png" next to
+     * "logo.png" - so word markers only count inside a derived folder.
+     *
+     * Outcome per file, stored as `derived_status` (+ `derived_from`):
+     * - 'linked_original': original is linked -> this file becomes
+     *   linked too, `link_confidence` = 'derived'. It stays linked only
+     *   as long as the original does: once the original loses its last
+     *   reference, the next scan puts both back under "Niet gekoppeld".
+     * - 'unlinked_original': original exists but is unlinked -> file
+     *   stays unlinked, with a hint to clean it up together with the
+     *   original.
+     * - 'missing_original': derived folder + marker, but the original is
+     *   gone (typically: photo deleted, generated thumbnails left
+     *   behind) -> stays unlinked, hint says it's safe to delete.
+     *
+     * Status is taken from a snapshot of 'linked' as markLinkedStatus()
+     * left it, so the result never depends on the order items happen to
+     * be processed in.
+     *
+     * @param   array  $items  Items after markLinkedStatus().
+     *
+     * @return  array  Same items with 'derivedFrom'/'derivedStatus' set,
+     *                 and 'linked'/'linkConfidence' updated for
+     *                 derivatives of a linked original.
+     */
+    protected function applyDerivedFileLinking(array $items)
+    {
+        $items = $this->withEmptyDerivedInfo($items);
+
+        $byPath        = [];
+        $knownDirs     = [];
+        $linkedAtStart = [];
+
+        foreach ($items as $idx => $item) {
+            $dir = strtolower(trim($item['path'], '/'));
+
+            $byPath[$dir . '/' . strtolower($item['name'])][] = $idx;
+            $knownDirs[$dir]     = true;
+            $linkedAtStart[$idx] = !empty($item['linked']);
+        }
+
+        foreach ($items as $idx => &$item) {
+            if ($linkedAtStart[$idx]) {
+                // Already linked on its own merits - keep that, it's the
+                // stronger signal.
+                continue;
+            }
+
+            $dir      = strtolower(trim($item['path'], '/'));
+            $name     = strtolower($item['name']);
+            $ownKey   = $dir . '/' . $name;
+            $pDirs    = $this->getDerivedParentDirCandidates($item['path']);
+            $inDerivedFolder = !empty($pDirs);
+
+            $sameDirNames = $this->getOriginalNameCandidates($name, false);
+            $allNames     = $inDerivedFolder ? $this->getOriginalNameCandidates($name, true) : [];
+
+            // Candidate original locations, strongest convention first.
+            $candidates = [];
+
+            foreach ($sameDirNames as $candidateName) {
+                if ($candidateName !== $name) {
+                    $candidates[] = $dir . '/' . $candidateName;
+                }
+            }
+
+            foreach ($pDirs as $parentDir) {
+                foreach (array_merge([$name], $allNames) as $candidateName) {
+                    $candidates[] = $parentDir . '/' . $candidateName;
+                }
+            }
+
+            $matchIdx = null;
+
+            foreach (array_unique($candidates) as $candidateKey) {
+                if ($candidateKey === $ownKey || !isset($byPath[$candidateKey])) {
+                    continue;
+                }
+
+                foreach ($byPath[$candidateKey] as $originalIdx) {
+                    if ($originalIdx === $idx) {
+                        continue;
+                    }
+
+                    if ($matchIdx === null || ($linkedAtStart[$originalIdx] && !$linkedAtStart[$matchIdx])) {
+                        $matchIdx = $originalIdx;
+                    }
+                }
+
+                if ($matchIdx !== null && $linkedAtStart[$matchIdx]) {
+                    break;
+                }
+            }
+
+            if ($matchIdx !== null) {
+                $original            = $items[$matchIdx];
+                $item['derivedFrom'] = rtrim($original['path'], '/') . '/' . $original['name'];
+
+                if ($linkedAtStart[$matchIdx]) {
+                    $item['linked']         = true;
+                    $item['linkConfidence'] = 'derived';
+                    $item['derivedStatus']  = 'linked_original';
+                } else {
+                    $item['derivedStatus'] = 'unlinked_original';
+                }
+
+                continue;
+            }
+
+            // No original found. Only call it an orphaned derivative when
+            // both conventions agree - derived folder whose original
+            // folder still exists, AND a stripped size/variant marker -
+            // so an ordinary file that merely lives in a folder called
+            // "large" or "preview" is never labelled like this.
+            $hasMarker = count(array_diff($allNames, [$name])) > 0;
+
+            if ($inDerivedFolder && $hasMarker) {
+                foreach ($pDirs as $parentDir) {
+                    if (isset($knownDirs[$parentDir])) {
+                        $item['derivedStatus'] = 'missing_original';
+                        $item['derivedFrom']   = null;
+                        break;
+                    }
+                }
+            }
+        }
+
+        unset($item);
+
+        return $items;
+    }
+
+    /**
+     * Possible names of the original a (lowercased) file name was derived
+     * from, by stripping one size/variant prefix and/or suffix from its
+     * stem - see applyDerivedFileLinking() for the conventions. Never
+     * returns an empty stem. May include the name itself (callers filter
+     * that where it matters).
+     *
+     * @param   string   $name          Lowercased file name.
+     * @param   boolean  $allowWordMarkers  false: numeric size markers only (same-folder use).
+     *
+     * @return  string[]
+     */
+    protected function getOriginalNameCandidates($name, $allowWordMarkers)
+    {
+        $dotPos = strrpos($name, '.');
+
+        if ($dotPos === false || $dotPos === 0) {
+            return [];
+        }
+
+        $stem = substr($name, 0, $dotPos);
+        $ext  = substr($name, $dotPos + 1);
+
+        $wordList = 'thumb|thumbs|thumbnail|tn|th|small|medium|large|mini|preview|resized|sm|md|lg|xs|xl';
+
+        // "nocrop_512_", "crop_104_", "w_800_", "thumb_200x150_"
+        $prefixes = ['~^[a-z]{1,16}[_\-]\d{1,5}(?:x\d{1,5})?[_\-]~'];
+        // "300x200_" anywhere; a bare "512_" only inside a derived
+        // folder - in the same folder a leading number is far more often
+        // a date or sequence ("2020_foto.jpg" next to "foto.jpg").
+        $prefixes[] = $allowWordMarkers ? '~^\d{1,5}(?:x\d{1,5})?[_\-]~' : '~^\d{1,5}x\d{1,5}[_\-]~';
+
+        // "-300x200", "_1024x768", "-800w", "@2x"
+        $suffixes = ['~[_\-]\d{1,5}x\d{1,5}$~', '~[_\-]\d{2,5}w$~', '~@[1-4]x$~'];
+
+        if ($allowWordMarkers) {
+            // "thumb_", "phoca_thumb_l_", "small-"
+            $prefixes[] = '~^(?:[a-z0-9]+_)?(?:' . $wordList . ')[_\-](?:[a-z][_\-])?~';
+            // "_thumb", "-small"
+            $suffixes[] = '~[_\-](?:' . $wordList . ')$~';
+        }
+
+        $stems = [$stem => true];
+
+        foreach ($prefixes as $pattern) {
+            if (preg_match($pattern, $stem, $m) && \strlen($stem) > \strlen($m[0])) {
+                $stems[substr($stem, \strlen($m[0]))] = true;
+            }
+        }
+
+        foreach (array_keys($stems) as $candidate) {
+            foreach ($suffixes as $pattern) {
+                if (preg_match($pattern, $candidate, $m, PREG_OFFSET_CAPTURE) && $m[0][1] > 0) {
+                    $stems[substr($candidate, 0, $m[0][1])] = true;
+                }
+            }
+        }
+
+        $names = [];
+
+        foreach (array_keys($stems) as $candidate) {
+            $names[$candidate . '.' . $ext] = true;
+
+            // Double extension: "x.jpg.webp" / "x.jpg_thumb.webp" -> "x.jpg".
+            // Only inside a derived folder: in the same folder a plain
+            // "x.webp" next to "x.jpg" is usually a deliberate conversion
+            // (Media Cleaner's own "Converteer naar WebP" makes exactly
+            // those), not a cache file.
+            if ($allowWordMarkers && strpos($candidate, '.') !== false) {
+                $names[$candidate] = true;
+            }
+        }
+
+        return array_keys($names);
+    }
+
+    /**
+     * For a file's folder, every folder its original could be in if this
+     * folder is a derived one (see applyDerivedFileLinking()). Returns an
+     * empty array when no segment of the path looks derived - which is
+     * also how callers tell "this is a derived folder" at all.
+     *
+     * Only one segment is rewritten at a time, so
+     * "images/eventgallery_generated/Album" yields
+     * "images/eventgallery/album" but never touches the album name.
+     *
+     * @param   string  $path  Item path as stored ("/images/x/y").
+     *
+     * @return  string[]  Lowercased relative folders, without leading/trailing slash.
+     */
+    protected function getDerivedParentDirCandidates($path)
+    {
+        $segments = array_values(array_filter(explode('/', trim($path, '/')), 'strlen'));
+
+        if (empty($segments)) {
+            return [];
+        }
+
+        $words   = implode('|', array_map(static function ($w) {
+            return preg_quote($w, '~');
+        }, $this->derivedFolderWords));
+        $whole   = '~^[._]?(?:' . $words . ')$~i';
+        $suffix  = '~^(.+?)[_.\-](?:' . $words . ')$~i';
+        $prefix  = '~^(?:' . $words . ')[_.\-](.+)$~i';
+        $results = [];
+
+        foreach ($segments as $i => $segment) {
+            $before = \array_slice($segments, 0, $i);
+            $after  = \array_slice($segments, $i + 1);
+
+            if ($i > 0 && preg_match($whole, $segment)) {
+                // ".../album/thumbs/x.jpg" -> ".../album/x.jpg"
+                $results[] = implode('/', array_merge($before, $after));
+
+                // ".../thumbnails/cat/x.jpg" -> ".../originals/cat/x.jpg"
+                foreach ($this->derivedOriginalFolderWords as $originalWord) {
+                    $results[] = implode('/', array_merge($before, [$originalWord], $after));
+                }
+
+                continue;
+            }
+
+            foreach ([$suffix, $prefix] as $pattern) {
+                if (preg_match($pattern, $segment, $m)) {
+                    // "eventgallery_generated" -> "eventgallery"
+                    $results[] = implode('/', array_merge($before, [$m[1]], $after));
+
+                    // Mirror-style cache root: "images/webp-cache/blog"
+                    // mirrors "images/blog" - drop the segment entirely.
+                    if ($i > 0) {
+                        $results[] = implode('/', array_merge($before, $after));
+                    }
+                }
+            }
+        }
+
+        $results = array_map('strtolower', array_filter($results, 'strlen'));
+
+        return array_values(array_unique($results));
     }
 
     /**

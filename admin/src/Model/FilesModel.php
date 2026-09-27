@@ -453,6 +453,8 @@ class FilesModel extends BaseDatabaseModel
                 'isThumbsDir'    => (int) ($row['is_thumbs_dir'] ?? 0) === 1,
                 'isSystemAssetDir'   => (int) ($row['is_system_asset_dir'] ?? 0) === 1,
                 'likelyManualUpload' => (int) ($row['likely_manual_upload'] ?? 0) === 1,
+                'derivedFrom'        => $row['derived_from'] ?? null,
+                'derivedStatus'      => $row['derived_status'] ?? null,
                 'possiblyOrphanedExtension' => (int) ($row['possibly_orphaned_extension'] ?? 0) === 1,
                 'imagesDirExtensionName'    => $row['images_dir_extension_name'] ?? null,
                 'imagesDirExtensionRemoved' => (int) ($row['images_dir_extension_removed'] ?? 0) === 1,
@@ -1069,7 +1071,7 @@ class FilesModel extends BaseDatabaseModel
         foreach (array_chunk($items, 200) as $chunk) {
             $query = $db->getQuery(true)
                 ->insert($db->quoteName('#__mediacleaner_files'))
-                ->columns($db->quoteName(['name', 'path', 'size', 'type', 'url', 'linked', 'link_confidence', 'ignored', 'no_preview', 'is_thumbs_dir', 'is_active_extension_asset', 'is_active_extension_images_dir', 'possibly_orphaned_extension', 'images_dir_extension_name', 'images_dir_extension_removed', 'asset_dir_extension_name', 'asset_dir_extension_removed', 'file_modified_at', 'is_system_asset_dir', 'likely_manual_upload', 'scanned_at']));
+                ->columns($db->quoteName(['name', 'path', 'size', 'type', 'url', 'linked', 'link_confidence', 'ignored', 'no_preview', 'is_thumbs_dir', 'is_active_extension_asset', 'is_active_extension_images_dir', 'possibly_orphaned_extension', 'images_dir_extension_name', 'images_dir_extension_removed', 'asset_dir_extension_name', 'asset_dir_extension_removed', 'file_modified_at', 'is_system_asset_dir', 'likely_manual_upload', 'derived_from', 'derived_status', 'scanned_at']));
 
             foreach ($chunk as $row) {
                 $query->values(
@@ -1094,6 +1096,8 @@ class FilesModel extends BaseDatabaseModel
                         !empty($row['modifiedAt']) ? $db->quote($row['modifiedAt']) : 'NULL',
                         !empty($row['isSystemAssetDir']) ? 1 : 0,
                         !empty($row['likelyManualUpload']) ? 1 : 0,
+                        !empty($row['derivedFrom']) ? $db->quote($row['derivedFrom']) : 'NULL',
+                        !empty($row['derivedStatus']) ? $db->quote($row['derivedStatus']) : 'NULL',
                         $db->quote($now),
                     ])
                 );

@@ -400,7 +400,13 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
                         <td style="white-space:nowrap;"><?php echo number_format($item['sizeKB'], 1, ',', '.'); ?> KB</td>
                         <td class="mc-path">
                             <?php echo htmlspecialchars($item['path']); ?>
-                            <?php if (!empty($item['assetDirExtensionName'])) : ?>
+                            <?php if (($item['derivedStatus'] ?? null) === 'linked_original') : ?>
+                                <div class="mc-derived-hint"><?php echo Text::sprintf('COM_MEDIACLEANER_DERIVED_LINKED_HINT', htmlspecialchars((string) $item['derivedFrom'])); ?></div>
+                            <?php elseif (($item['derivedStatus'] ?? null) === 'unlinked_original') : ?>
+                                <div class="mc-orphan-hint"><?php echo Text::sprintf('COM_MEDIACLEANER_DERIVED_UNLINKED_HINT', htmlspecialchars((string) $item['derivedFrom'])); ?></div>
+                            <?php elseif (($item['derivedStatus'] ?? null) === 'missing_original') : ?>
+                                <div class="mc-orphan-hint"><?php echo Text::_('COM_MEDIACLEANER_DERIVED_MISSING_HINT'); ?></div>
+                            <?php elseif (!empty($item['assetDirExtensionName'])) : ?>
                                 <?php if (!empty($item['assetDirExtensionRemoved'])) : ?>
                                     <div class="mc-orphan-hint"><?php echo Text::sprintf('COM_MEDIACLEANER_ASSET_DIR_EXTENSION_REMOVED', htmlspecialchars($item['assetDirExtensionName'])); ?></div>
                                 <?php else : ?>
@@ -426,6 +432,8 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
                         <td>
                             <?php if (($item['linkConfidence'] ?? 'none') === 'confirmed') : ?>
                                 <span class="mc-badge mc-badge-linked"><?php echo Text::_('COM_MEDIACLEANER_LINKED_YES'); ?></span>
+                            <?php elseif (($item['linkConfidence'] ?? 'none') === 'derived') : ?>
+                                <span class="mc-badge mc-badge-derived" title="<?php echo htmlspecialchars(Text::_('COM_MEDIACLEANER_LINKED_DERIVED_HINT')); ?>"><?php echo Text::_('COM_MEDIACLEANER_LINKED_DERIVED'); ?></span>
                             <?php elseif (($item['linkConfidence'] ?? 'none') === 'probable') : ?>
                                 <span class="mc-badge mc-badge-probable" title="<?php echo htmlspecialchars(Text::_('COM_MEDIACLEANER_LINKED_PROBABLE_HINT')); ?>"><?php echo Text::_('COM_MEDIACLEANER_LINKED_PROBABLE'); ?></span>
                             <?php else : ?>

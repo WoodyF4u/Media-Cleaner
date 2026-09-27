@@ -37,6 +37,12 @@ CREATE TABLE IF NOT EXISTS `#__mediacleaner_files` (
     -- it was added later by hand rather than shipped with the
     -- extension. Always 0 when `is_system_asset_dir` is 0.
     `likely_manual_upload` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+    -- v2.8.0: generated thumbnail / resized copy of another scanned file
+    -- (see Scanner::applyDerivedFileLinking()). `derived_from` is the
+    -- original's relative path; `derived_status` is 'linked_original',
+    -- 'unlinked_original' or 'missing_original' (NULL: not derived).
+    `derived_from` VARCHAR(1024) NULL DEFAULT NULL,
+    `derived_status` VARCHAR(20) NULL DEFAULT NULL,
     `scanned_at` DATETIME NOT NULL,
     PRIMARY KEY (`id`),
     KEY `idx_size` (`size`),
@@ -56,6 +62,7 @@ CREATE TABLE IF NOT EXISTS `#__mediacleaner_files` (
     KEY `idx_likely_manual_upload` (`likely_manual_upload`),
     KEY `idx_unlinked_view2` (`linked`, `ignored`, `is_thumbs_dir`, `is_active_extension_asset`, `is_active_extension_images_dir`),
     KEY `idx_system_asset_view` (`linked`, `ignored`, `is_system_asset_dir`, `likely_manual_upload`),
+    KEY `idx_derived_status` (`derived_status`),
     -- Everything below this line was originally only added via
     -- admin/sql/updates/mysql/*.sql (v1.2.0 through v1.19.0), which only
     -- ever run when an EXISTING install is being updated - never on a
