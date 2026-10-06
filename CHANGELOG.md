@@ -3,6 +3,48 @@
 Elke regel is ook een test die je na installatie kunt aflopen om te
 controleren of een functie daadwerkelijk is meegenomen.
 
+## 2.8.3
+
+- **Grote sites: de scan loopt niet meer vast.** Op een site met tienduizenden
+  bestanden en artikelen (niburu.co: 37.000 bestanden, 13.600 artikelen)
+  raakte het geheugen op (512 MB) en brak de server de scan daarna af op
+  tijd, waarna het overzicht op "Nog niet gescand" bleef staan.
+  - De scan draait nu in korte stappen van een paar seconden. De balk toont
+    een echt percentage en wat er gebeurt ("Mappen doorzoeken… 41.200
+    mediabestanden gevonden"). De tekst "ongeveer 20 seconden" is weg.
+  - Reageert de server niet op tijd, dan volgt vanzelf een nieuwe poging met
+    kleinere stappen. Lukt het niet, dan staat de reden in beeld met een
+    knop "Verder gaan".
+  - Het overzicht wordt pas helemaal aan het eind overschreven; een
+    mislukte scan laat het vorige overzicht staan.
+  - Tabellen worden in blokken gelezen en een bestand kost in het geheugen
+    ongeveer een derde van voorheen.
+  - Tabellen van extensies krijgen in totaal 5 minuten in plaats van
+    20 seconden.
+- **Bestandsnamen met haakjes, plustekens, accenten, ampersands en
+  apostroffen worden nu herkend** (`foto (1).jpg`, `a+b.jpg`, `café.jpg`,
+  `Jan & Piet.jpg`), ook als ze gecodeerd zijn opgeslagen (`%20`, `&amp;`,
+  `caf\u00e9` in JSON). Voorheen stonden zulke bestanden altijd onder Niet
+  gekoppeld.
+  - Een volledige URL of een pad in een submap telt nu als "gekoppeld" in
+    plaats van "waarschijnlijk".
+  - Staat er een volledig pad naar een bestand, dan wordt een gelijknamig
+    bestand in een andere map niet meer "waarschijnlijk gekoppeld".
+- **De versiegeschiedenis van artikelen (`#__history`) telt niet meer mee.**
+  Een afbeelding die alleen nog in een oude versie van een artikel staat,
+  is niet in gebruik. Op niburu.co stonden daardoor 265 bestanden ten
+  onrechte onder Gekoppeld.
+- Bulk negeren/herstellen en het automatisch negeren van thumbs gaan per
+  200 bestanden in plaats van per stuk.
+- "Alle" in de paginering toont maximaal 1000 rijen per pagina; de
+  frontend-weergave toont de 1000 grootste bestanden.
+- Geen schema-wijziging. De tussenresultaten van een scan staan tijdelijk
+  in de tmp-map van Joomla; die moet schrijfbaar zijn.
+- Test: installeer deze update. De scan start vanzelf en de balk loopt in
+  stappen op tot 100%. Zet een afbeelding met een naam als `test (1).jpg`
+  in een artikel en scan opnieuw: het bestand hoort onder Gekoppelde media
+  te staan, met het artikel eronder.
+
 ## 2.8.2
 
 - **Afbeeldingen waarvan de naam in een artikel met `%20` (of een andere

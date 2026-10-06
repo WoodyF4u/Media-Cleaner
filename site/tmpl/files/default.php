@@ -56,6 +56,9 @@ $formatSize = function (float $sizeKB) {
     <?php if (empty($this->items)) : ?>
         <p class="mc-site-empty"><?php echo Text::_('COM_MEDIACLEANER_SITE_EMPTY'); ?></p>
     <?php else : ?>
+        <?php if ($this->totalCount > count($this->items)) : ?>
+            <p class="mc-site-capped"><?php echo Text::sprintf('COM_MEDIACLEANER_SITE_LIST_CAPPED', count($this->items), (int) $this->totalCount); ?></p>
+        <?php endif; ?>
         <form action="<?php echo htmlspecialchars(Route::_('index.php?option=com_mediacleaner&view=files' . $idSuffix, false)); ?>" method="post" name="mcSiteForm" id="mcSiteForm">
             <table class="mc-site-table">
                 <thead>

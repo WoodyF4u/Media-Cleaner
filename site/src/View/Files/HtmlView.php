@@ -35,9 +35,24 @@ use Joomla\CMS\Uri\Uri;
 class HtmlView extends BaseHtmlView
 {
     /**
+     * Most files shown in the frontend overview (see display()).
+     *
+     * @var integer
+     */
+    public const MAX_ROWS = 1000;
+
+    /**
      * @var array
      */
     protected $items = [];
+
+    /**
+     * Number of files matching the current filter, including those
+     * beyond MAX_ROWS that aren't shown.
+     *
+     * @var integer
+     */
+    protected $totalCount = 0;
 
     /**
      * @var string
@@ -107,7 +122,14 @@ class HtmlView extends BaseHtmlView
         // The frontend overview always sorts by size (the thing visitors
         // are here to check) and never shows ignored files - that toggle
         // stays a backend-only convenience.
-        $this->items = $model->getItems('size', 'DESC', $this->filterLinked, false);
+        //
+        // v2.8.3: limited to the MAX_ROWS largest files. This overview
+        // has no pagination, and used to load and render every matching
+        // file - which runs out of memory on a very large site. Since
+        // the list is sorted largest-first, the files that matter most
+        // are the ones shown; the template says so when it's cut short.
+        $this->totalCount = $model->getFilteredCount($this->filterLinked, false);
+        $this->items      = $model->getItems('size', 'DESC', $this->filterLinked, false, self::MAX_ROWS, 0);
 
         Factory::getDocument()->setTitle(Text::_('COM_MEDIACLEANER_FILES'));
 
