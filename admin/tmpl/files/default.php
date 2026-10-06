@@ -10,6 +10,7 @@ defined('_JEXEC') or die;
 use Joomla\CMS\HTML\HTMLHelper;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Router\Route;
+use Joomla\CMS\Session\Session;
 
 /** @var \Joomla\Component\Mediacleaner\Administrator\View\Files\HtmlView $this */
 
@@ -721,128 +722,263 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
             return;
         }
 
-        // Keep roughly in sync with FilesModel::$haystackMaxSeconds - this
-        // is only used to pace the animation, not an actual timeout, so
-        // being slightly off has no functional effect.
-        var estimatedSeconds = 20;
+        // v2.8.3: a scan no longer happens in one long request. This
+        // script asks the server for it one short step at a time (see
+        // FilesController::scanStep() / ScanJob) and shows what the
+        // server reports back - a real percentage and what it is
+        // currently doing - instead of the old animation that merely
+        // guessed at "about 20 seconds".
+        var endpoint  = form.action;
+        var tokenName = <?php echo json_encode(Session::getFormToken()); ?>;
+        var text      = <?php echo json_encode([
+            'starting' => Text::_('COM_MEDIACLEANER_RESCAN_IN_PROGRESS'),
+            'retrying' => Text::_('COM_MEDIACLEANER_SCAN_RETRYING'),
+            'failed'   => Text::_('COM_MEDIACLEANER_SCAN_FAILED'),
+            'resume'   => Text::_('COM_MEDIACLEANER_SCAN_RESUME'),
+            'network'  => Text::_('COM_MEDIACLEANER_SCAN_NO_RESPONSE'),
+        ]); ?>;
 
-        // Shared by both the manual "Scan opnieuw uitvoeren" button below
-        // and the auto-rescan-after-Options flow further down, so the two
-        // always look identical. Returns the overlay element, or null if
-        // one is already showing.
-        function showRescanOverlay() {
-            if (document.getElementById('mc-rescan-overlay')) {
-                return null;
+        var container = document.querySelector('.com-mediacleaner-files');
+        var overlay   = null;
+        var fill      = null;
+        var label     = null;
+        var resume    = null;
+        var running   = false;
+        var lastLabel = text.starting;
+
+        // State of the scan in flight - kept outside runScan() so the
+        // "Verder gaan" button can pick up exactly where it stopped.
+        var scanId   = '';
+        var budget   = 8;
+        var failures = 0;
+        var busy     = 0;
+        var doneUrl  = '';
+
+        function showOverlay() {
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'mc-rescan-overlay';
+
+                var track = document.createElement('div');
+                track.className = 'mc-rescan-bar-track';
+
+                fill = document.createElement('div');
+                fill.className = 'mc-rescan-bar-fill';
+                track.appendChild(fill);
+
+                label = document.createElement('div');
+                label.className = 'mc-rescan-label';
+
+                resume = document.createElement('button');
+                resume.type = 'button';
+                resume.className = 'btn btn-sm btn-secondary mc-rescan-resume';
+                resume.textContent = text.resume;
+                resume.hidden = true;
+                resume.addEventListener('click', function () {
+                    if (running) {
+                        return;
+                    }
+
+                    running  = true;
+                    failures = 0;
+                    busy     = 0;
+                    budget   = 2;
+
+                    overlay.classList.remove('mc-rescan-failed');
+                    resume.hidden = true;
+                    label.textContent = lastLabel;
+
+                    step();
+                });
+
+                overlay.appendChild(track);
+                overlay.appendChild(label);
+                overlay.appendChild(resume);
+                slot.appendChild(overlay);
             }
 
-            var overlay = document.createElement('div');
-            overlay.id = 'mc-rescan-overlay';
+            overlay.classList.remove('mc-rescan-failed');
+            resume.hidden = true;
+            fill.style.width = '1%';
+            label.textContent = text.starting;
+            lastLabel = text.starting;
 
-            var track = document.createElement('div');
-            track.className = 'mc-rescan-bar-track';
+            // The list underneath is about to be replaced - dim it and
+            // make it unclickable while the scan runs.
+            if (container) {
+                container.classList.add('mc-scanning');
+            }
+        }
 
-            var fill = document.createElement('div');
-            fill.className = 'mc-rescan-bar-fill';
-            track.appendChild(fill);
+        function showFailure(detail) {
+            running = false;
 
-            var label = document.createElement('div');
-            label.className = 'mc-rescan-label';
-            label.textContent = <?php echo json_encode(Text::_('COM_MEDIACLEANER_RESCAN_IN_PROGRESS')); ?>;
+            overlay.classList.add('mc-rescan-failed');
+            label.textContent = text.failed + (detail ? ' ' + detail : '');
+            resume.hidden = false;
+        }
 
-            overlay.appendChild(track);
-            overlay.appendChild(label);
-            slot.appendChild(overlay);
+        function describe(result) {
+            if (!result || typeof result.status === 'undefined') {
+                return text.network;
+            }
 
-            var start = Date.now();
+            // Whatever the server sent instead of the expected answer,
+            // reduced to a short readable snippet.
+            var snippet = String(result.text || '')
+                .replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, ' ')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 240);
 
-            // Asymptotic curve: creeps up quickly at first, then slows
-            // down and approaches (but deliberately never quite reaches)
-            // 92%. We genuinely don't know the real duration in advance -
-            // it depends on how much the site's database and file tree
-            // have to be searched - so this is a plausible-looking
-            // estimate, not a real percentage. The bar disappears on its
-            // own once the page navigates away (either the manual button's
-            // own form submit below, or the AJAX flow's redirect once the
-            // background scan finishes).
-            function tick() {
-                if (!document.body.contains(overlay)) {
+            return '(HTTP ' + result.status + (snippet ? ': ' + snippet : '') + ')';
+        }
+
+        function step() {
+            var body = new FormData();
+
+            body.append('option', 'com_mediacleaner');
+            body.append('task', 'files.scanStep');
+            body.append('scan_id', scanId);
+            body.append('budget', String(budget));
+            body.append(tokenName, '1');
+
+            fetch(endpoint, {
+                method: 'POST',
+                body: body,
+                credentials: 'same-origin',
+                headers: {'X-Requested-With': 'XMLHttpRequest'}
+            }).then(function (response) {
+                return response.text().then(function (responseText) {
+                    return {status: response.status, text: responseText};
+                });
+            }).then(function (result) {
+                var data = null;
+
+                try {
+                    data = JSON.parse(result.text);
+                } catch (e) {
+                    data = null;
+                }
+
+                if (data && data.error) {
+                    // The server itself explained what is wrong (no
+                    // permission, work folder not writable, ...) -
+                    // repeating the request would not change that, so
+                    // "Verder gaan" starts a fresh scan from here.
+                    scanId = '';
+
+                    showFailure(data.error);
+
                     return;
                 }
 
-                var elapsed = (Date.now() - start) / 1000;
-                var pct     = 92 * (1 - Math.exp(-elapsed / (estimatedSeconds * 0.6)));
+                if (!data || result.status !== 200 || !data.scanId) {
+                    throw result;
+                }
 
-                fill.style.width = pct.toFixed(1) + '%';
+                scanId = data.scanId;
 
-                requestAnimationFrame(tick);
-            }
+                if (data.busy) {
+                    // An earlier request for this step is still being
+                    // worked on (the connection was cut, the work was
+                    // not). Wait for it rather than doing it twice.
+                    busy++;
 
-            requestAnimationFrame(tick);
+                    if (busy > 60) {
+                        throw result;
+                    }
 
-            return overlay;
-        }
+                    window.setTimeout(step, 3000);
 
-        // The "Scan opnieuw uitvoeren" button itself is rendered by
-        // Joomla core (ToolbarHelper::custom()), not by this template, so
-        // it isn't something we can add our own markup around - instead
-        // this listens for the click alongside Joomla's own handler
-        // (without preventing it) and shows the bar for however long the
-        // full-page form submit takes to come back.
-        var refreshWrapper = document.getElementById('toolbar-refresh');
-        var refreshButton  = refreshWrapper ? refreshWrapper.querySelector('button') : null;
+                    return;
+                }
 
-        if (refreshButton) {
-            refreshButton.addEventListener('click', function () {
-                refreshButton.disabled = true;
-                showRescanOverlay();
+                failures  = 0;
+                busy      = 0;
+                lastLabel = data.label || lastLabel;
+
+                fill.style.width  = Math.max(1, Math.min(100, data.percent || 0)) + '%';
+                label.textContent = lastLabel;
+
+                if (data.done) {
+                    window.location.href = doneUrl;
+
+                    return;
+                }
+
+                step();
+            }).catch(function (result) {
+                failures++;
+
+                if (failures <= 4) {
+                    // Most likely the step took longer than this server
+                    // allows: try again, asking for less work per step.
+                    budget = Math.max(2, Math.floor(budget / 2));
+                    label.textContent = lastLabel + ' ' + text.retrying;
+
+                    window.setTimeout(step, 2500);
+
+                    return;
+                }
+
+                showFailure(describe(result));
             });
         }
+
+        function runScan() {
+            if (running) {
+                return;
+            }
+
+            running  = true;
+            scanId   = '';
+            budget   = 8;
+            failures = 0;
+            busy     = 0;
+            doneUrl  = window.location.href
+                .replace(/([?&])mc_auto_rescan=1&?/, '$1')
+                .replace(/[?&]$/, '');
+
+            showOverlay();
+            step();
+        }
+
+        // The "Scan opnieuw uitvoeren" button is rendered by Joomla core
+        // (ToolbarHelper::custom()) and would submit the whole form as
+        // task "files.rescan" - one long request. Catching the click
+        // here first, before Joomla's own handler sees it, starts the
+        // stepped scan instead. Should this script ever fail to load,
+        // the button simply falls back to that original behaviour.
+        window.addEventListener('click', function (event) {
+            var wrapper = document.getElementById('toolbar-refresh');
+
+            if (!wrapper || !(event.target instanceof Node) || !wrapper.contains(event.target)) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopImmediatePropagation();
+
+            runScan();
+        }, true);
 
         // Auto-rescan after returning from the Options screen (see
         // Files/HtmlView::addToolbar(), which puts "mc_auto_rescan=1" on
         // the Options button's return URL) OR after this component was
         // just updated (see HtmlView::consumeNeedsRescanAfterUpdateFlag(),
         // set by script.php's postflight() so the database never lags
-        // behind whatever a new version's scan logic changed): land on
-        // this page immediately - rather than making the person wait on a
-        // blank-looking screen while the scan runs before the redirect
-        // even happens - then run the scan here in the background over
-        // the same task the manual button above uses, with the bar
-        // visible the whole time. Once it finishes, navigate to the clean
-        // URL so the page re-renders with the fresh results and the usual
-        // "scan done" message.
+        // behind whatever a new version's scan logic changed).
         //
         // v2.7.18: $hideContentForRescan (both trigger sources combined,
         // computed once server-side in HtmlView::display()) also decided
         // whether the summary/filters/table further up got rendered at
-        // all this load - so by the time this script runs, the person is
-        // looking at just the page title and this progress bar, never
-        // the previous (guaranteed stale) results sitting there looking
-        // clickable while a fresh scan is actually still running
-        // underneath.
+        // all this load - so the person is looking at just the page
+        // title and this progress bar, never the previous (guaranteed
+        // stale) results.
         if (<?php echo $this->hideContentForRescan ? 'true' : 'false'; ?>) {
-            var cleanUrl = window.location.href
-                .replace(/([?&])mc_auto_rescan=1&?/, '$1')
-                .replace(/[?&]$/, '');
-
-            showRescanOverlay();
-
-            var taskField = document.getElementById('mc-f-task');
-            taskField.value = 'files.rescan';
-
-            fetch(form.action, {
-                method: 'POST',
-                body: new FormData(form),
-                credentials: 'same-origin'
-            }).catch(function () {
-                // Ignore network errors here - the navigation below still
-                // takes the person back to a normal page either way, and a
-                // scan that didn't actually run is visible from the "last
-                // scan" timestamp rather than silently pretending it
-                // worked.
-            }).finally(function () {
-                window.location.href = cleanUrl;
-            });
+            runScan();
         }
     })();
 </script>

@@ -13,7 +13,6 @@ use Joomla\CMS\Component\ComponentHelper;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Log\Log;
 use Joomla\CMS\Uri\Uri;
-use RecursiveCallbackFilterIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use FilesystemIterator;
@@ -35,10 +34,11 @@ use FilesystemIterator;
  * (it's exactly what FilesModel::rescan() used to do inline before the
  * split - scan, link, tag, then hand back to the model for persistence).
  *
- * This class does not touch `#__mediacleaner_files` /
- * `#__mediacleaner_references` itself - it only returns arrays. Writing
- * the scan results to the database stays FilesModel::rescan()'s
- * responsibility, same as before the split.
+ * v2.8.3: this class holds the building blocks - walking the filesystem,
+ * matching text against the scanned files, classifying files - each of
+ * them resumable. Running them in order, keeping the intermediate result
+ * between requests and writing the outcome to the database is ScanJob's
+ * job (a subclass, so it can use the protected methods here).
  */
 class Scanner
 {
@@ -64,13 +64,6 @@ class Scanner
         // Documents
         'pdf',
     ];
-
-    /**
-     * Cache for getCandidateFileRegex() - built once per request.
-     *
-     * @var string|null
-     */
-    protected $candidateFileRegex = null;
 
     /**
      * Top level folders that are skipped while scanning (system/vendor
@@ -124,6 +117,11 @@ class Scanner
         '*plugin_messages*',
         '*finder_*',
         '*redirect_links*',
+        // v2.8.3: Joomla's article version history. An image that only
+        // still occurs in an *old version* of an article is not in use
+        // on the site, so it must not count as linked (on niburu.co this
+        // table held 72,000 old versions, 700 MB).
+        '#__history',
         '#__extensions',
         '#__update_sites*',
         '#__schemas',
@@ -180,12 +178,59 @@ class Scanner
     protected $haystackMaxSeconds = 20;
 
     /**
-     * Number of rows fetched per query in sweepGenericTables(), instead of
-     * reading an entire (potentially huge) table in one go.
+     * v2.8.3: every table read during a scan goes through
+     * forEachTableRow(), which fetches a bounded number of rows per query
+     * and adapts that number to how big the rows turn out to be - it
+     * starts small, doubles while a chunk stays well under
+     * $chunkTargetBytes, and halves as soon as one exceeds it. So a table
+     * of short rows is read in few queries, while a table of very long
+     * article bodies never has more than a few MB in memory at once.
      *
      * @var integer
      */
-    protected $genericScanChunkSize = 500;
+    protected $chunkRowsStart = 25;
+
+    /**
+     * @var integer
+     */
+    protected $chunkRowsMin = 5;
+
+    /**
+     * @var integer
+     */
+    protected $chunkRowsMax = 1000;
+
+    /**
+     * @var integer
+     */
+    protected $chunkTargetBytes = 4194304; // 4 MB
+
+    /**
+     * Core Joomla tables and the text columns in them that commonly hold
+     * media references - read in full, without a time budget, by
+     * sweepCuratedContent(). sweepGenericTables() skips exactly these
+     * columns (it still reads every *other* text column of the same
+     * tables), so the largest table on most sites - `#__content` - is no
+     * longer searched twice.
+     *
+     * @var array
+     */
+    protected $curatedSources = [
+        '#__content'         => ['introtext', 'fulltext', 'images', 'metadesc', 'metakey'],
+        '#__modules'         => ['content', 'params'],
+        '#__categories'      => ['description', 'params'],
+        '#__menu'            => ['link', 'params'],
+        '#__fields_values'   => ['value'],
+        '#__contact_details' => ['misc', 'address', 'params'],
+        '#__banners'         => ['description', 'params'],
+    ];
+
+    /**
+     * Cache for getExtensionEndRegex() - built once per request.
+     *
+     * @var string|null
+     */
+    protected $extensionEndRegex = null;
 
     /**
      * @param   \Joomla\Database\DatabaseDriver  $db
@@ -193,57 +238,6 @@ class Scanner
     public function __construct($db)
     {
         $this->db = $db;
-    }
-
-    /**
-     * Run a full scan-and-link pass: walk the filesystem, work out which
-     * files are still referenced, apply the "ignored" and "active
-     * extension asset" flags, and build the reference index. This is
-     * exactly the sequence FilesModel::rescan() used to run inline before
-     * the v1.37.0 split - only the database persistence step stayed
-     * behind in FilesModel, since writing `#__mediacleaner_files` /
-     * `#__mediacleaner_references` is that model's own responsibility.
-     *
-     * @return  array  ['items' => array, 'referenceIndex' => array]
-     */
-    public function scan()
-    {
-        $this->registerCrashLogger();
-
-        $items = $this->scanFilesystem();
-        $items = $this->applyManualUploadOutlierDetection($items);
-        $items = $this->markLinkedStatus($items);
-
-        // v2.8.0: must run after markLinkedStatus() (needs each
-        // original's own 'linked' result) and before markIgnoredStatus()/
-        // applyAutoIgnoreThumbs() (a derivative of a linked original is
-        // now linked itself, so it must never be auto-ignored).
-        $items = $this->linkDerivedFilesEnabled()
-            ? $this->applyIdNamedCacheLinking($this->applyDerivedFileLinking($items))
-            : $this->withEmptyDerivedInfo($items);
-
-        $items = $this->markIgnoredStatus($items);
-        $items = $this->applyAutoIgnoreThumbs($items);
-        $items = $this->markActiveExtensionAssetStatus($items);
-        $items = $this->applyExtensionFolderSegmentOverride($items, ['images'], false);
-        $items = $this->applyExtensionFolderSegmentOverride($items, ['canvas', 'fonts'], true);
-        $items = $this->applyActiveExtensionFilenameOverride($items);
-
-        // Derived files (v2.8.0) are linked through their original, never
-        // referenced directly anywhere - searching every content table
-        // for them again in buildReferenceIndex() would only cost time
-        // (1000+ Event Gallery thumbnails on a modest site) and find
-        // nothing. The overview shows their original instead.
-        $linkedItems = array_values(array_filter($items, static function ($item) {
-            return $item['linked'] && ($item['linkConfidence'] ?? '') !== 'derived';
-        }));
-
-        $referenceIndex = $this->buildReferenceIndex($linkedItems);
-
-        return [
-            'items'          => $items,
-            'referenceIndex' => $referenceIndex,
-        ];
     }
 
     /**
@@ -2003,18 +1997,24 @@ class Scanner
 
         unset($item);
 
-        foreach ($toInsert as $relative) {
+        // v2.8.3: 200 rows per INSERT rather than one query per file - a
+        // first scan of a large site can auto-ignore tens of thousands of
+        // thumbnails in one go.
+        foreach (array_chunk($toInsert, 200) as $chunk) {
             try {
                 $insertQuery = $db->getQuery(true)
                     ->insert($db->quoteName('#__mediacleaner_ignored'))
-                    ->columns($db->quoteName(['relative_path', 'ignored_at', 'source', 'suppressed']))
-                    ->values($db->quote($relative) . ',' . $db->quote($now) . ",'auto_thumbs',0");
+                    ->columns($db->quoteName(['relative_path', 'ignored_at', 'source', 'suppressed']));
+
+                foreach ($chunk as $relative) {
+                    $insertQuery->values($db->quote($relative) . ',' . $db->quote($now) . ",'auto_thumbs',0");
+                }
 
                 $db->setQuery($insertQuery)->execute();
             } catch (\Exception $e) {
-                // Best-effort: a failed insert just leaves this one file
+                // Best-effort: a failed insert just leaves these files
                 // visible under Niet-gekoppeld until the next scan
-                // retries it, rather than failing the whole scan.
+                // retries them, rather than failing the whole scan.
             }
         }
 
@@ -2144,7 +2144,7 @@ class Scanner
         foreach ($items as $idx => $item) {
             $dir = strtolower(trim($item['path'], '/'));
 
-            $byPath[$dir . '/' . strtolower($item['name'])][] = $idx;
+            $this->addToLookupIndex($byPath, $dir . '/' . strtolower($item['name']), $idx);
             $knownDirs[$dir]     = true;
             $linkedAtStart[$idx] = !empty($item['linked']);
         }
@@ -2187,7 +2187,7 @@ class Scanner
                     continue;
                 }
 
-                foreach ($byPath[$candidateKey] as $originalIdx) {
+                foreach ((array) $byPath[$candidateKey] as $originalIdx) {
                     if ($originalIdx === $idx) {
                         continue;
                     }
@@ -2616,284 +2616,60 @@ class Scanner
     }
 
     /**
-     * Determine, for every scanned file, whether it is still referenced
-     * somewhere on the site, and how confident we are about that:
+     * Build a lookup index from the scanned items, once per request, so
+     * every sweep can check "is this name one of our files?" with a hash
+     * lookup instead of comparing it against every one of potentially
+     * hundreds of thousands of items individually.
      *
-     * - 'confirmed': the file's full relative path (folder + name) was
-     *   found - in Joomla's own content tables, in the generic sweep of
-     *   every other database table (see sweepGenericTables()), or
-     *   hardcoded in a template/plugin/component source file (see
-     *   sweepFilesystemCode()). This is about as sure as a text
-     *   search can be.
-     * - 'probable': no full path was found anywhere, but the file's exact
-     *   name turned up in some other table's text column. Some
-     *   extensions (JDownloads is a concrete example) only store the bare
-     *   filename and keep the folder as separate, non-obvious
-     *   configuration - a real reference, but one a generic filename
-     *   search could in principle also match by coincidence, so it's
-     *   flagged rather than silently treated the same as a confirmed hit.
-     * - 'none': not found anywhere - "Niet gekoppeld".
+     * Keyed by lowercased file name only. Matching is case-insensitive
+     * by design, so two files differing only by case in the same folder
+     * ("Luxemburg-oude.jpg" / "luxemburg-oude.jpg", seen for real on
+     * bmwcruiser.nl) share a key and are both marked linked on a hit -
+     * the safe direction, since dropping one from consideration can
+     * hide a genuine reference (v2.7.2). Whether a hit is 'confirmed'
+     * is decided afterwards from the folder path in front of the name
+     * (see filterByPrecedingFolder()); a second index keyed by full
+     * path is no longer needed for that (v2.8.3).
      *
-     * This is a heuristic text search, not a guarantee, on either tier:
-     * always check manually before deleting "unlinked" files.
-     *
-     * @param   array  $items  Items as returned by scanFilesystem().
-     *
-     * @return  array  Same items, each with added 'linked' (boolean) and 'linkConfidence' ('confirmed'|'probable'|'none').
-     */
-    /**
-     * Build a lookup index from the scanned items, once per rescan, so
-     * every sweep below can check "is this candidate string one of our
-     * files?" with an O(1) hash lookup instead of comparing it against
-     * every one of potentially thousands of items individually.
+     * A value is a bare item index while a name is unique, and only
+     * becomes a list on an actual collision (see addToLookupIndex()).
      *
      * @param   array  $items
      *
-     * @return  array  ['byPath' => [relativePath => [itemIndex, ...]], 'byName' => [basename => [itemIndex, ...]]]
+     * @return  array  ['byName' => [lowercased name => itemIndex | itemIndex[]]]
      */
     protected function buildFileLookupIndex(array $items)
     {
-        $byPath = [];
         $byName = [];
 
         foreach ($items as $idx => $item) {
-            $relative = strtolower(trim($item['path'], '/') . '/' . $item['name']);
-
-            // v2.7.2: was a single idx (last write wins) - two files
-            // differing only by case in the same folder (e.g.
-            // "Luxemburg-oude-....jpg" and "luxemburg-oude-....jpg",
-            // seen for real on bmwcruiser.nl) both normalise to the same
-            // $relative key here, so whichever scanned second used to
-            // silently overwrite the first. Since matching is
-            // case-insensitive by design (candidate paths get
-            // strtolower()'d too - see matchIndexedCandidates()), a real
-            // reference to one of the two physical files could only ever
-            // confirm-link whichever one happened to win the collision,
-            // leaving its same-name-different-case sibling looking
-            // "Niet-gekoppeld" even when it's the file actually in use.
-            // Now every colliding item is tracked and all of them get
-            // marked linked on a hit - the safe direction, since the
-            // alternative (silently dropping one from consideration) can
-            // hide a genuine reference.
-            if (!isset($byPath[$relative])) {
-                $byPath[$relative] = [];
-            }
-
-            $byPath[$relative][] = $idx;
-
-            $name = strtolower($item['name']);
-
-            if (!isset($byName[$name])) {
-                $byName[$name] = [];
-            }
-
-            $byName[$name][] = $idx;
+            $this->addToLookupIndex($byName, strtolower($item['name']), $idx);
         }
 
-        return ['byPath' => $byPath, 'byName' => $byName];
+        return ['byName' => $byName];
     }
 
     /**
-     * A regex matching any run of path-like characters ending in one of
-     * our tracked media extensions (see $extensions) - "candidate file
-     * references" that a piece of text might contain, regardless of
-     * which extension put them there. Built once and cached, since it's
-     * used on every chunk of every sweep.
+     * Adds one item index under $key in a lookup map whose values are
+     * either a single integer (the common case: one file per key) or a
+     * list of integers (several files share the key). Read such a value
+     * back with a `(array)` cast, which turns both shapes into a list.
      *
-     * @return  string
-     */
-    protected function getCandidateFileRegex()
-    {
-        if ($this->candidateFileRegex === null) {
-            $extPattern = implode('|', array_map(
-                static function ($ext) {
-                    return preg_quote($ext, '~');
-                },
-                $this->extensions
-            ));
-
-            // Includes a literal space in the character class: real
-            // filenames often contain spaces (e.g. "Handleiding 1200
-            // C.pdf", seen verbatim in JDownloads data on bmwcruiser.nl) -
-            // without it, the match would be truncated at the first space
-            // and never line up with the actual filename. (?<![\w]) still
-            // avoids starting mid-word, so this doesn't swallow entire
-            // unrelated sentences before a coincidental ".pdf" - it only
-            // extends into whitespace *within* an already-started
-            // path/filename-like run.
-            $this->candidateFileRegex = '~(?<![\\w])[\\w\\-./\\\\ ]{1,300}\\.(?:' . $extPattern . ')~i';
-        }
-
-        return $this->candidateFileRegex;
-    }
-
-    /**
-     * The core of the new, extension-agnostic, universal scan: rather
-     * than checking every item against a whole chunk of text (expensive
-     * when there are thousands of items - this was the reason
-     * sweepGenericTables() could get through only 58 of 238 tables in
-     * 20 seconds on bmwcruiser.nl), this scans each value *once* for
-     * anything that looks like a file reference ending in one of our
-     * tracked extensions, and looks each one up directly in the index
-     * built by buildFileLookupIndex(). Cost is proportional to how much
-     * text there is, not to how many files we're tracking - so it stays
-     * fast no matter how large the site's media library is, and works
-     * identically for any extension's tables without needing to know
-     * that extension's schema in advance.
-     *
-     * Takes an array of separate values (e.g. one per database column),
-     * not one pre-joined string: because the character class now allows
-     * spaces (needed for filenames like "Handleiding 1200 C.pdf" - see
-     * CHANGELOG v1.17.1), joining every column with a single space first
-     * let a match span across what were originally separate columns
-     * (e.g. gluing a checksum column onto an adjacent filename column),
-     * producing a garbled candidate that could never match the index.
-     * Scanning each value on its own avoids that entirely, while a
-     * genuine space *within* one value (a real filename) still works.
-     *
-     * @param   array   &$items  Items array, modified in place.
-     * @param   array   $values  One or more separate pieces of text (column values, or a single file's content).
-     * @param   array   $index   Result of buildFileLookupIndex().
+     * @param   array    &$map
+     * @param   string   $key
+     * @param   integer  $idx
      *
      * @return  void
      */
-    protected function matchIndexedCandidates(array &$items, array $values, array $index)
+    protected function addToLookupIndex(array &$map, $key, $idx)
     {
-        // v2.8.2: URL-encoded references. Editors (JCE, TinyMCE) often
-        // write a file name with spaces as
-        // src="images/Stress%20meten%20biofeedback.jpg". The candidate
-        // regex doesn't include '%', so that used to be cut up into
-        // "20biofeedback.jpg" and matched nothing - two images used in
-        // published VABS articles showed up as "Niet gekoppeld". Any
-        // value containing a percent-escape is now scanned a second
-        // time in decoded form. rawurldecode() (not urldecode()) so a
-        // literal '+' in a file name stays a '+'.
-        $decoded = [];
-
-        foreach ($values as $text) {
-            $text = (string) $text;
-
-            if ($text !== '' && strpos($text, '%') !== false && preg_match('~%[0-9a-f]{2}~i', $text)) {
-                $decoded[] = rawurldecode($text);
-            }
+        if (!isset($map[$key])) {
+            $map[$key] = $idx;
+        } elseif (\is_array($map[$key])) {
+            $map[$key][] = $idx;
+        } else {
+            $map[$key] = [$map[$key], $idx];
         }
-
-        if ($decoded) {
-            $values = array_merge(array_values($values), $decoded);
-        }
-
-        foreach ($values as $text) {
-            $text = (string) $text;
-
-            if ($text === '' || \strlen($text) > $this->haystackMaxCellBytes) {
-                continue;
-            }
-
-            if (!preg_match_all($this->getCandidateFileRegex(), $text, $matches)) {
-                continue;
-            }
-
-            foreach ($matches[0] as $candidate) {
-                // Normalise: JSON-escaped slashes (\/) collapse to a
-                // single real slash first - doing a bare backslash-to-
-                // slash replace before this would turn "a\/b" into
-                // "a//b" instead of "a/b", since the slash that was
-                // already there stays put. Any *remaining* backslash (a
-                // genuine Windows-style separator, not JSON escaping)
-                // becomes a forward slash afterwards.
-                $normalized = str_replace('\\/', '/', $candidate);
-                $normalized = str_replace('\\', '/', $normalized);
-                $normalized = strtolower($normalized);
-                $normalized = ltrim($normalized, '/');
-
-                if (isset($index['byPath'][$normalized])) {
-                    foreach ($index['byPath'][$normalized] as $idx) {
-                        $items[$idx]['linked']         = true;
-                        $items[$idx]['linkConfidence'] = 'confirmed';
-                    }
-
-                    continue;
-                }
-
-                $basename = strtolower(basename($normalized));
-
-                if (isset($index['byName'][$basename])) {
-                    foreach ($index['byName'][$basename] as $idx) {
-                        if ($items[$idx]['linkConfidence'] !== 'confirmed') {
-                            $items[$idx]['linked']         = true;
-                            $items[$idx]['linkConfidence'] = 'probable';
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    protected function markLinkedStatus(array $items)
-    {
-        foreach ($items as &$item) {
-            $item['linked']         = false;
-            $item['linkConfidence'] = 'none';
-        }
-
-        unset($item);
-
-        $index = $this->buildFileLookupIndex($items);
-
-        // The overall deadline for the two heavier phases combined - a
-        // safety net now rather than the load-bearing mechanism it used
-        // to be, since the index-based matching below is no longer
-        // O(items) per chunk and should comfortably finish well inside
-        // this on any realistic site.
-        $deadline = microtime(true) + $this->haystackMaxSeconds;
-
-        $debug = [
-            'curated_ms' => 0,
-            'generic_ms' => 0,
-            'code_ms'    => 0,
-            'generic'    => null,
-            'code'       => null,
-            'exception'  => null,
-        ];
-
-        $t0 = microtime(true);
-
-        // Phase 1 - curated core Joomla content (articles, modules,
-        // menus, categories, contacts, banners, custom fields). Kept as
-        // a fast, guaranteed-to-run-to-completion pass even though the
-        // generic sweep below now covers these tables too - cheap
-        // insurance in case the generic sweep is ever interrupted.
-        $this->sweepCuratedContent($items, $index);
-        $debug['curated_ms'] = (int) round((microtime(true) - $t0) * 1000);
-
-        // Phase 2 and 3 below are the newer, heavier machinery - inherently
-        // more exposed to surprises on a given site's exact combination of
-        // extensions, table sizes and file permissions. This outer
-        // try/catch is the last line of defense: if something we didn't
-        // anticipate still throws, the rescan falls back to whatever was
-        // already found instead of failing outright.
-        try {
-            $t1               = microtime(true);
-            $debug['generic'] = $this->sweepGenericTables($items, $index, $deadline);
-            $debug['generic_ms'] = (int) round((microtime(true) - $t1) * 1000);
-
-            $codeDeadline = min($deadline, microtime(true) + $this->codeScanMaxSeconds);
-
-            $t2 = microtime(true);
-            $debug['code'] = $this->sweepFilesystemCode($items, $index, $codeDeadline);
-            $debug['code_ms'] = (int) round((microtime(true) - $t2) * 1000);
-        } catch (\Throwable $e) {
-            $debug['exception'] = $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine();
-            Log::add(
-                'Media Cleaner: the extended (generic table / filesystem code) scan failed and was skipped for this rescan: ' . $e->getMessage(),
-                Log::WARNING,
-                'jerror'
-            );
-        }
-
-        $this->writeScanDebugLog($debug, $items);
-
-        return $items;
     }
 
     /**
@@ -2925,6 +2701,8 @@ class Scanner
         $lines[] = '  generic table phase:   ' . $debug['generic_ms'] . ' ms';
         $lines[] = '  result: confirmed=' . $counts['confirmed'] . ', probable=' . $counts['probable'] . ', unlinked=' . $counts['none']
             . ' (total ' . \count($items) . ')';
+        $lines[] = '  memory: peak ' . number_format(memory_get_peak_usage() / 1048576, 1, '.', '') . ' MB so far'
+            . ' (memory_limit ' . ini_get('memory_limit') . ', max_execution_time ' . ini_get('max_execution_time') . ')';
 
         if (\is_array($debug['code'])) {
             $c       = $debug['code'];
@@ -2960,163 +2738,6 @@ class Scanner
     }
 
     /**
-     * Sweep every database table (aside from this component's own and the
-     * excluded noise patterns - see $genericScanExcludeTablePatterns) for
-     * text/varchar columns, checking each row against the
-     * still-unresolved items as soon as it's read and then discarding it
-     * - never accumulating everything into one big string (see
-     * $haystackMaxCellBytes for why).
-     *
-     * This is what lets any third-party extension's media references be
-     * picked up automatically, without a curated, hand-maintained list of
-     * tables/columns per extension.
-     *
-     * @param   array    &$items    Items array, modified in place.
-     * @param   array    $index     Result of buildFileLookupIndex().
-     * @param   float    $deadline  microtime(true) value to stop at.
-     *
-     * @return  array  Diagnostic stats - see writeScanDebugLog().
-     */
-    protected function sweepGenericTables(array &$items, array $index, $deadline)
-    {
-        $db     = $this->db;
-        $prefix = $db->getPrefix();
-
-        $stats = [
-            'tables_total'        => 0,
-            'tables_excluded'     => 0,
-            'tables_scanned'      => 0,
-            'rows_checked'        => 0,
-            'stopped_reason'      => 'finished',
-            'last_tables_scanned' => [],
-            'sample_excluded'     => [],
-        ];
-
-        $excludePatterns = array_map(
-            static function ($pattern) use ($prefix) {
-                return str_replace('#__', $prefix, $pattern);
-            },
-            $this->genericScanExcludeTablePatterns
-        );
-
-        // SHOW TABLES / SHOW COLUMNS rather than querying
-        // information_schema directly: both are universally available to
-        // any MySQL/MariaDB user that can use the database at all, while
-        // information_schema access can be restricted on some shared
-        // hosting setups - which would make the whole generic sweep
-        // silently find nothing, with no obvious symptom beyond "this
-        // isn't working" (exactly what happened on bmwcruiser.nl).
-        try {
-            $db->setQuery('SHOW TABLES LIKE ' . $db->quote($prefix . '%'));
-            $tables = $db->loadColumn();
-        } catch (\Exception $e) {
-            $stats['stopped_reason'] = 'could not list tables: ' . $e->getMessage();
-            Log::add('Media Cleaner: generic table sweep could not list tables (' . $e->getMessage() . ') - skipped.', Log::WARNING, 'jerror');
-
-            return $stats;
-        }
-
-        $stats['tables_total'] = \count($tables);
-        $textTypePrefixes      = ['varchar', 'text', 'tinytext', 'mediumtext', 'longtext', 'char'];
-
-        foreach ($tables as $table) {
-            if (microtime(true) >= $deadline) {
-                $stats['stopped_reason'] = 'deadline reached';
-                return $stats;
-            }
-
-            if ($this->tableNameMatchesAnyPattern($table, $excludePatterns)) {
-                $stats['tables_excluded']++;
-
-                if (\count($stats['sample_excluded']) < 15) {
-                    $stats['sample_excluded'][] = $table;
-                }
-
-                continue;
-            }
-
-            try {
-                $db->setQuery('SHOW COLUMNS FROM ' . $db->quoteName($table));
-                $columnRows = $db->loadAssocList();
-            } catch (\Exception $e) {
-                // Table disappeared mid-scan or similar - skip it.
-                continue;
-            }
-
-            $columns = [];
-
-            foreach ($columnRows as $columnRow) {
-                // Column type strings look like "varchar(255)", "text",
-                // "mediumtext", etc. - match on the prefix before any "(".
-                $type = strtolower((string) ($columnRow['Type'] ?? ''));
-                $type = strstr($type, '(', true) ?: $type;
-
-                if (\in_array($type, $textTypePrefixes, true)) {
-                    $columns[] = $columnRow['Field'];
-                }
-            }
-
-            if (empty($columns)) {
-                continue;
-            }
-
-            $stats['tables_scanned']++;
-            $stats['last_tables_scanned'][] = $table;
-
-            if (\count($stats['last_tables_scanned']) > 15) {
-                array_shift($stats['last_tables_scanned']);
-            }
-
-            $offset = 0;
-
-            // Read this table in bounded chunks rather than one
-            // unbounded SELECT, so a single very large table (an active
-            // forum's post bodies, for example) never needs to be held in
-            // memory all at once - and each row is checked against the
-            // lookup index and then discarded immediately below, rather
-            // than being collected anywhere.
-            while (true) {
-                if (microtime(true) >= $deadline) {
-                    $stats['stopped_reason'] = 'deadline reached';
-                    return $stats;
-                }
-
-                try {
-                    $query = $db->getQuery(true)
-                        ->select($db->quoteName($columns))
-                        ->from($db->quoteName($table))
-                        ->setLimit($this->genericScanChunkSize, $offset);
-                    $db->setQuery($query);
-                    $rows = $db->loadRowList();
-                } catch (\Exception $e) {
-                    // Table/columns changed shape mid-scan, or a transient
-                    // DB error - move on to the next table rather than
-                    // failing the whole rescan over one bad table.
-                    break;
-                }
-
-                if (empty($rows)) {
-                    break;
-                }
-
-                foreach ($rows as $row) {
-                    $this->matchIndexedCandidates($items, $row, $index);
-                    $stats['rows_checked']++;
-                }
-
-                $offset += $this->genericScanChunkSize;
-
-                if (count($rows) < $this->genericScanChunkSize) {
-                    // Reached the end of this table.
-                    break;
-                }
-            }
-        }
-
-        return $stats;
-    }
-
-    /**
      * Match a table name against a list of glob-style patterns (* = any
      * number of characters), case-insensitively. Uses PHP's fnmatch()
      * rather than hand-rolling SQL-LIKE-to-regex conversion, which is
@@ -3141,111 +2762,16 @@ class Scanner
     }
 
     /**
-     * Read the text content of every template/plugin/component/module
-     * source file (see $codeScanDirs / $codeScanExtensions), checking each
-     * file's content against the file lookup index and then discarding
-     * it - so a media reference hardcoded directly in a template
-     * override, a system plugin, or (importantly) a third-party
-     * component's own bundled UI assets is still picked up, without ever
-     * holding more than one file's content in memory at a time.
-     *
-     * @param   array  &$items    Items array, modified in place.
-     * @param   array  $index     Result of buildFileLookupIndex().
-     * @param   float  $deadline  microtime(true) value to stop at.
-     *
-     * @return  array  Diagnostic stats - see writeScanDebugLog().
-     */
-    protected function sweepFilesystemCode(array &$items, array $index, $deadline)
-    {
-        $root = rtrim(JPATH_ROOT, '/\\');
-
-        $stats = [
-            'dirs_covered'   => [],
-            'files_scanned'  => 0,
-            'stopped_reason' => 'finished',
-        ];
-
-        foreach ($this->codeScanDirs as $dir) {
-            if (microtime(true) >= $deadline) {
-                $stats['stopped_reason'] = 'deadline reached';
-                return $stats;
-            }
-
-            $path = $root . '/' . $dir;
-
-            if (!is_dir($path)) {
-                continue;
-            }
-
-            $stats['dirs_covered'][] = $dir;
-
-            try {
-                $iterator = new RecursiveIteratorIterator(
-                    new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
-                    RecursiveIteratorIterator::SELF_FIRST
-                );
-
-                // The foreach itself - not just building the iterator - is
-                // inside this try block: RecursiveDirectoryIterator can
-                // throw *during* iteration (e.g. UnexpectedValueException
-                // on a permission-denied subdirectory), not only when it's
-                // constructed. An uncaught exception here previously
-                // turned one unreadable folder into a fatal error for the
-                // whole rescan; now it just ends this top-level directory
-                // early and moves on to the next one in $codeScanDirs.
-                foreach ($iterator as $file) {
-                    if (microtime(true) >= $deadline) {
-                        $stats['stopped_reason'] = 'deadline reached';
-                        return $stats;
-                    }
-
-                    if (!$file->isFile()) {
-                        continue;
-                    }
-
-                    $ext = strtolower($file->getExtension());
-
-                    if (!\in_array($ext, $this->codeScanExtensions, true)) {
-                        continue;
-                    }
-
-                    $size = $file->getSize();
-
-                    if ($size <= 0 || $size > $this->codeScanMaxFileBytes) {
-                        continue;
-                    }
-
-                    $content = @file_get_contents($file->getPathname());
-
-                    if ($content === false || $content === '') {
-                        continue;
-                    }
-
-                    $this->matchIndexedCandidates($items, [$content], $index);
-                    $stats['files_scanned']++;
-                }
-            } catch (\Exception $e) {
-                // Unreadable subdirectory or similar - skip the rest of
-                // this top-level dir, keep whatever was already found,
-                // and continue with the next one.
-                continue;
-            }
-        }
-
-        return $stats;
-    }
-
-    /**
      * Check whether a single file's path appears in the given haystack,
      * trying a few common variations (with/without leading slash, and the
      * JSON-escaped-slash form used by some custom field values).
      *
-     * @param   array   $item      Single file record (name + path).
-     * @param   string  $haystack  Combined searchable content.
+     * @param   ScanItem|array  $item      Single file record (name + path).
+     * @param   string          $haystack  Combined searchable content.
      *
      * @return  boolean
      */
-    protected function isReferenced(array $item, $haystack)
+    protected function isReferenced($item, $haystack)
     {
         $relative = trim($item['path'], '/') . '/' . $item['name'];
 
@@ -3270,6 +2796,11 @@ class Scanner
             }
         }
 
+        // "A&B.jpg" as written inside HTML.
+        if (strpos($relative, '&') !== false) {
+            $candidates[] = str_replace('&', '&amp;', $relative);
+        }
+
         foreach ($candidates as $candidate) {
             if ($candidate !== '' && stripos($haystack, $candidate) !== false) {
                 return true;
@@ -3280,429 +2811,1183 @@ class Scanner
     }
 
     /**
-     * For every file already known to be "linked", figure out exactly
-     * which article(s), module(s), menu item(s), etc. reference it, so the
-     * "Gekoppelde media" view can show a deep link straight to the right
-     * edit screen.
+     * Best-effort preparation for a scan that may take a while on a
+     * large site (v2.8.3). Each call is harmless where the host doesn't
+     * allow it - the scan then simply runs under the server's own
+     * limits, as it always did.
      *
-     * This only runs for the (usually much smaller) set of already-linked
-     * files, keeping rescan() performance reasonable.
+     * - Keep going if the browser gives up waiting, so the result is
+     *   still stored and visible on the next page view.
+     * - Ask for up to 10 minutes of execution time and 512 MB of memory
+     *   when the configured limits are lower (never lowers a limit).
      *
-     * @param   array  $linkedItems  Items from scanFilesystem() with 'linked' === true.
-     *
-     * @return  array  relative_path => list of ['type' => ..., 'title' => ..., 'url' => ...|null]
+     * @return  void
      */
-    protected function buildReferenceIndex(array $linkedItems)
+    protected function prepareEnvironmentForLongScan()
     {
-        $references = [];
-
-        if (empty($linkedItems)) {
-            return $references;
+        if (\function_exists('ignore_user_abort')) {
+            @ignore_user_abort(true);
         }
 
-        $db = $this->db;
+        $maxTime = (int) ini_get('max_execution_time');
 
-        /**
-         * Scan a table's rows for matches against every linked file and
-         * append a reference entry for each hit.
-         */
-        $scan = function ($table, array $textColumns, $titleColumn, $type, callable $urlBuilder) use (&$references, $db, $linkedItems) {
-            try {
-                $columns = array_unique(array_merge(['id', $titleColumn], $textColumns));
-                $query   = $db->getQuery(true)->select($db->quoteName($columns))->from($db->quoteName($table));
-                $db->setQuery($query);
-                $rows = $db->loadAssocList();
-            } catch (\Exception $e) {
-                return;
+        if ($maxTime > 0 && $maxTime < 600 && \function_exists('set_time_limit')) {
+            @set_time_limit(600);
+        }
+
+        $memoryLimit = trim((string) ini_get('memory_limit'));
+
+        if ($memoryLimit !== '' && $memoryLimit !== '-1' && preg_match('~^(\d+)\s*([kmg]?)~i', $memoryLimit, $m)) {
+            $bytes = (int) $m[1] * [' ' => 1, 'k' => 1024, 'm' => 1048576, 'g' => 1073741824][strtolower($m[2]) ?: ' '];
+
+            if ($bytes < 536870912 && \function_exists('ini_set')) {
+                @ini_set('memory_limit', '512M');
+            }
+        }
+    }
+
+    /**
+     * Characters that can never be part of a file name as it appears in
+     * content: path separators, the quote and angle brackets that end an
+     * HTML attribute or tag, and control characters. A file name mention
+     * is whatever runs from the nearest one of these up to a tracked
+     * extension (see extractSegments()).
+     *
+     * @var string
+     */
+    protected $segmentDelimiters = "/\\\"<>\0\t\n\r";
+
+    /**
+     * Total time (seconds) the generic table sweep and the code sweep
+     * may take when the scan runs in steps (see ScanJob) - each step is
+     * a short request of its own, so the total can be far more generous
+     * than the single-request budgets ($haystackMaxSeconds,
+     * $codeScanMaxSeconds), which stay as they were for the
+     * no-JavaScript fallback.
+     *
+     * @var integer
+     */
+    protected $genericSteppedMaxSeconds = 300;
+
+    /**
+     * Find every place in a piece of (already lowercased) text where a
+     * tracked extension ends a name, and return the text leading up to
+     * it - back to the nearest path separator, quote, angle bracket or
+     * control character, at most 255 bytes.
+     *
+     * v2.8.3: replaces the old "candidate" regex, which only accepted
+     * letters, digits, "_", "-", ".", slashes and spaces. Any other
+     * character cut the name short, so a file called "foto (1).jpg",
+     * "a+b.jpg" or "café.jpg" could never be recognised in an article
+     * and always showed up as "Niet gekoppeld" even when it was in use.
+     * A segment now simply contains whatever the name contains.
+     *
+     * "images/a.jpg and b.jpg" yields "a.jpg" and "a.jpg and b.jpg" -
+     * one segment per extension found; segmentSuffixOffsets() then takes
+     * care of names that start later in the segment.
+     *
+     * @param   string  $lower  Lowercased text.
+     *
+     * @return  array  List of [segment, offset of the segment in $lower].
+     */
+    protected function extractSegments($lower)
+    {
+        $segments = [];
+
+        if ($lower === '' || !preg_match_all($this->getExtensionEndRegex(), $lower, $matches, PREG_OFFSET_CAPTURE)) {
+            return $segments;
+        }
+
+        foreach ($matches[0] as $match) {
+            $pos    = $match[1];
+            $from   = $pos > 255 ? $pos - 255 : 0;
+            $before = substr($lower, $from, $pos - $from);
+            $length = strcspn(strrev($before), $this->segmentDelimiters);
+
+            if ($length === 0) {
+                continue;
             }
 
-            foreach ($rows as $row) {
-                $haystack = '';
+            $segments[] = [substr($lower, $pos - $length, $length + \strlen($match[0])), $pos - $length];
+        }
 
-                foreach ($textColumns as $column) {
-                    $haystack .= ' ' . (string) ($row[$column] ?? '');
+        return $segments;
+    }
+
+    /**
+     * Positions inside a segment where a (shorter) file name could
+     * start: right after any run of ASCII characters other than letters,
+     * digits, "_", "-" and "." - a space, "=", "(", ",", "'" and so on.
+     * So for the segment "url(foto (1).jpg" the names tried are, longest
+     * first: the whole segment, "foto (1).jpg", "(1).jpg", "1).jpg".
+     *
+     * @param   string  $segment
+     *
+     * @return  integer[]  Ascending offsets, at most 32 (the ones nearest the end).
+     */
+    protected function segmentSuffixOffsets($segment)
+    {
+        if (!preg_match_all('~[^a-z0-9_\\-.\\x80-\\xff]+~', $segment, $matches, PREG_OFFSET_CAPTURE)) {
+            return [];
+        }
+
+        $offsets = [];
+        $length  = \strlen($segment);
+
+        foreach ($matches[0] as $match) {
+            $offset = $match[1] + \strlen($match[0]);
+
+            if ($offset < $length) {
+                $offsets[] = $offset;
+            }
+        }
+
+        return \count($offsets) > 32 ? \array_slice($offsets, -32) : $offsets;
+    }
+
+    /**
+     * The text itself plus its decoded forms, where it has any: an
+     * editor writes "foto (1).jpg" as "foto%20(1).jpg" in a src
+     * attribute (rawurldecode, not urldecode, so a literal "+" in a file
+     * name stays a "+"), "A&B.jpg" as "A&amp;B.jpg", and JSON turns
+     * "café.jpg" into "caf\u00e9.jpg".
+     *
+     * @param   string  $text
+     *
+     * @return  string[]
+     */
+    protected function textVariants($text)
+    {
+        $variants = [$text];
+
+        if (strpos($text, '%') !== false && preg_match('~%[0-9a-f]{2}~i', $text)) {
+            $variants[] = rawurldecode($text);
+        }
+
+        if (strpos($text, '&') !== false && preg_match('~&(?:amp|#\\d+|#x[0-9a-f]+|[a-z]+);~i', $text)) {
+            $decoded = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+            if ($decoded !== $text) {
+                $variants[] = $decoded;
+
+                if (strpos($decoded, '%') !== false && preg_match('~%[0-9a-f]{2}~i', $decoded)) {
+                    $variants[] = rawurldecode($decoded);
                 }
+            }
+        }
 
-                if (trim($haystack) === '') {
-                    continue;
-                }
+        // JSON as Joomla stores it (article images, module params,
+        // custom fields) writes "café.jpg" as "caf\u00e9.jpg".
+        if (strpos($text, '\\u') !== false) {
+            $decoded = preg_replace_callback(
+                '~(?:\\\\u[0-9a-f]{4})+~i',
+                static function ($match) {
+                    $value = json_decode('"' . $match[0] . '"');
 
-                foreach ($linkedItems as $file) {
-                    if (!$this->isReferenced($file, $haystack)) {
+                    return \is_string($value) ? $value : $match[0];
+                },
+                $text
+            );
+
+            if (\is_string($decoded) && $decoded !== $text) {
+                $variants[] = $decoded;
+            }
+        }
+
+        return $variants;
+    }
+
+    /**
+     * The core of the extension-agnostic scan: checks one or more
+     * separate pieces of text (one per database column, or one file's
+     * content) for references to scanned files, and marks those files
+     * linked.
+     *
+     * Cost is proportional to how much text there is, not to how many
+     * files are tracked: each value is searched once for tracked
+     * extensions, and what precedes each one is looked up directly in
+     * the index built by buildFileLookupIndex().
+     *
+     * - The longest name that exists on disk wins: for "nieuwe foto.jpg"
+     *   a file by exactly that name is preferred over one called
+     *   "foto.jpg".
+     * - 'confirmed' when the file's own folder path stands directly in
+     *   front of the name (plain, with JSON-escaped slashes or with
+     *   backslashes). When several same-named files qualify, only the
+     *   one(s) with the longest matching folder - and same-named files
+     *   in other folders are then left alone, as before.
+     * - 'probable' when only the bare name was found.
+     *
+     * Takes separate values rather than one joined string, so a name can
+     * never be glued together out of two adjacent columns.
+     *
+     * @param   array   &$items  Items array, modified in place.
+     * @param   array   $values  One or more separate pieces of text.
+     * @param   array   $index   Result of buildFileLookupIndex().
+     *
+     * @return  void
+     */
+    protected function matchIndexedCandidates(array &$items, array $values, array $index)
+    {
+        $byName = $index['byName'];
+
+        foreach ($values as $value) {
+            $value = (string) $value;
+
+            if ($value === '' || \strlen($value) > $this->haystackMaxCellBytes) {
+                continue;
+            }
+
+            foreach ($this->textVariants($value) as $text) {
+                $lower = strtolower($text);
+
+                foreach ($this->extractSegments($lower) as $found) {
+                    $segment   = $found[0];
+                    $nameStart = $found[1];
+                    $key       = null;
+
+                    if (isset($byName[$segment])) {
+                        $key = $segment;
+                    } else {
+                        foreach ($this->segmentSuffixOffsets($segment) as $offset) {
+                            $candidate = substr($segment, $offset);
+
+                            if (isset($byName[$candidate])) {
+                                $key        = $candidate;
+                                $nameStart += $offset;
+                                break;
+                            }
+                        }
+                    }
+
+                    if ($key === null) {
                         continue;
                     }
 
-                    $relative                = trim($file['path'], '/') . '/' . $file['name'];
-                    $references[$relative][] = [
-                        'type'  => $type,
-                        'title' => (string) ($row[$titleColumn] ?? ''),
-                        'url'   => $urlBuilder($row),
-                    ];
+                    $indices   = (array) $byName[$key];
+                    $confirmed = $this->filterByPrecedingFolder($items, $indices, $lower, $nameStart);
+
+                    if (!empty($confirmed)) {
+                        foreach ($confirmed as $idx) {
+                            $items[$idx]['linked']         = true;
+                            $items[$idx]['linkConfidence'] = 'confirmed';
+                        }
+
+                        continue;
+                    }
+
+                    foreach ($indices as $idx) {
+                        if ($items[$idx]['linkConfidence'] !== 'confirmed') {
+                            $items[$idx]['linked']         = true;
+                            $items[$idx]['linkConfidence'] = 'probable';
+                        }
+                    }
                 }
             }
-        };
+        }
+    }
 
-        $scan(
-            '#__content',
-            ['introtext', 'fulltext', 'images', 'metadesc', 'metakey'],
-            'title',
-            'article',
-            static function ($row) {
+    /**
+     * Of the files in $indices (all sharing one name), which have their
+     * own folder path standing directly in front of the name at
+     * $nameStart in $lower? Returns only those with the longest such
+     * folder - two files differing only in letter case share folder and
+     * name, and are both returned (see buildFileLookupIndex()).
+     *
+     * The folder must itself start at a boundary - "ximages/a.jpg" is
+     * not a reference to "images/a.jpg" - but may be preceded by more
+     * path: "https://site.nl/images/a.jpg" and "/submap/images/a.jpg"
+     * both count. Files in the site root have no folder to check and are
+     * never 'confirmed' this way, same as before.
+     *
+     * @param   array    $items
+     * @param   array    $indices
+     * @param   string   $lower      Lowercased text.
+     * @param   integer  $nameStart  Offset of the name in $lower.
+     *
+     * @return  integer[]
+     */
+    protected function filterByPrecedingFolder(array $items, array $indices, $lower, $nameStart)
+    {
+        if ($nameStart === 0) {
+            return [];
+        }
+
+        $take = $nameStart > 1200 ? 1200 : $nameStart;
+        $pre  = substr($lower, $nameStart - $take, $take);
+
+        if (strpos($pre, '\\') !== false) {
+            $pre = str_replace(['\\/', '\\'], '/', $pre);
+        }
+
+        $preLength = \strlen($pre);
+
+        if ($preLength === 0 || $pre[$preLength - 1] !== '/') {
+            return [];
+        }
+
+        $best      = 0;
+        $confirmed = [];
+
+        foreach ($indices as $idx) {
+            $dir    = strtolower(trim($items[$idx]['path'], '/'));
+            $length = \strlen($dir);
+
+            if ($length === 0 || $length < $best || $length + 1 > $preLength) {
+                continue;
+            }
+
+            if (substr_compare($pre, $dir . '/', -($length + 1)) !== 0) {
+                continue;
+            }
+
+            $before = $preLength - $length - 2;
+
+            if ($before >= 0 && preg_match('~[a-z0-9_\\-.\\x80-\\xff]~', $pre[$before])) {
+                continue;
+            }
+
+            if ($length > $best) {
+                $best      = $length;
+                $confirmed = [];
+            }
+
+            $confirmed[] = $idx;
+        }
+
+        return $confirmed;
+    }
+
+    /**
+     * Which of the linked files does this piece of text refer to?
+     *
+     * Step 1 narrows the field: every name that occurs in the text (see
+     * extractSegments(), segmentSuffixOffsets()) is looked up in
+     * $nameIndex. Step 2 confirms each of those few files with
+     * isReferenced() - the file's full relative path must be present.
+     * That used to be the only step, run for every linked file against
+     * every row: 20,000 articles x 30,000 linked files = 600 million
+     * searches through article bodies, which never finishes. Now the
+     * cost is proportional to the amount of text.
+     *
+     * @param   string  $haystack     Text of one row.
+     * @param   array   $nameIndex    lowercased file name => index (or list of indices) into $linkedItems.
+     * @param   array   $linkedItems  Linked items, 0-based.
+     *
+     * @return  string[]  Relative paths (no leading slash) of the files referenced, in $linkedItems order.
+     */
+    protected function findReferencedFiles($haystack, array $nameIndex, array $linkedItems)
+    {
+        $variants = $this->textVariants($haystack);
+        $indices  = [];
+
+        foreach ($variants as $text) {
+            foreach ($this->extractSegments(strtolower($text)) as $found) {
+                $segment = $found[0];
+
+                if (isset($nameIndex[$segment])) {
+                    foreach ((array) $nameIndex[$segment] as $idx) {
+                        $indices[$idx] = true;
+                    }
+                }
+
+                foreach ($this->segmentSuffixOffsets($segment) as $offset) {
+                    $candidate = substr($segment, $offset);
+
+                    if (isset($nameIndex[$candidate])) {
+                        foreach ((array) $nameIndex[$candidate] as $idx) {
+                            $indices[$idx] = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (empty($indices)) {
+            return [];
+        }
+
+        ksort($indices);
+
+        $found = [];
+
+        foreach ($indices as $idx => $unused) {
+            $file = $linkedItems[$idx];
+
+            foreach ($variants as $text) {
+                if ($this->isReferenced($file, $text)) {
+                    $found[] = trim($file['path'], '/') . '/' . $file['name'];
+                    break;
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * Matches ".jpg", ".pdf", ... (any tracked extension) where it ends
+     * a name, in already-lowercased text. Built once and cached.
+     *
+     * @return  string
+     */
+    protected function getExtensionEndRegex()
+    {
+        if ($this->extensionEndRegex === null) {
+            $extPattern = implode('|', array_map(
+                static function ($ext) {
+                    return preg_quote($ext, '~');
+                },
+                $this->extensions
+            ));
+
+            $this->extensionEndRegex = '~\\.(?:' . $extPattern . ')(?![a-z0-9])~';
+        }
+
+        return $this->extensionEndRegex;
+    }
+
+    /**
+     * The sources searched for "gebruikt in" references:
+     * [table, text columns, title column, reference type, edit-url builder].
+     *
+     * Third-party tables are only read if they exist (forEachTableRow()
+     * simply reports an error and the source is skipped otherwise), so
+     * this is safe on sites that don't have the extension installed.
+     * Their edit links point at the extension's general list view rather
+     * than a specific item, since their single-item edit route isn't
+     * something we could verify without the extension's own source.
+     *
+     * @return  array
+     */
+    protected function getReferenceSources()
+    {
+        return [
+            ['#__content', ['introtext', 'fulltext', 'images', 'metadesc', 'metakey'], 'title', 'article', static function ($row) {
                 return 'index.php?option=com_content&task=article.edit&id=' . (int) $row['id'];
-            }
-        );
-
-        $scan(
-            '#__modules',
-            ['content', 'params'],
-            'title',
-            'module',
-            static function ($row) {
+            }],
+            ['#__modules', ['content', 'params'], 'title', 'module', static function ($row) {
                 return 'index.php?option=com_modules&task=module.edit&id=' . (int) $row['id'];
-            }
-        );
-
-        $scan(
-            '#__menu',
-            ['link', 'params'],
-            'title',
-            'menu',
-            static function ($row) {
+            }],
+            ['#__menu', ['link', 'params'], 'title', 'menu', static function ($row) {
                 return 'index.php?option=com_menus&task=item.edit&id=' . (int) $row['id'];
-            }
-        );
-
-        $scan(
-            '#__categories',
-            ['description', 'params'],
-            'title',
-            'category',
-            static function ($row) {
+            }],
+            ['#__categories', ['description', 'params'], 'title', 'category', static function ($row) {
                 $extension = $row['extension'] ?? 'com_content';
 
                 return 'index.php?option=com_categories&task=category.edit&id=' . (int) $row['id']
                     . '&extension=' . urlencode($extension);
-            }
-        );
-
-        $scan(
-            '#__contact_details',
-            ['misc', 'address', 'params'],
-            'name',
-            'contact',
-            static function ($row) {
+            }],
+            ['#__contact_details', ['misc', 'address', 'params'], 'name', 'contact', static function ($row) {
                 return 'index.php?option=com_contact&task=contact.edit&id=' . (int) $row['id'];
-            }
-        );
-
-        $scan(
-            '#__banners',
-            ['description', 'params'],
-            'name',
-            'banner',
-            static function ($row) {
+            }],
+            ['#__banners', ['description', 'params'], 'name', 'banner', static function ($row) {
                 return 'index.php?option=com_banners&task=banner.edit&id=' . (int) $row['id'];
-            }
-        );
-
-        // Third-party extensions below. These are only scanned if their
-        // table actually exists (the $scan() closure catches the DB error
-        // and simply skips silently otherwise), so this is safe to ship
-        // even for sites that don't have the extension installed.
-        //
-        // The edit links point at each extension's general list view
-        // rather than a specific item, since - unlike the Joomla core
-        // views above - their exact single-item edit route isn't
-        // something we could verify without the extension's own source.
-        // If either of these turns out to be wrong for a given version of
-        // the extension, the type label and title are still correct; only
-        // the deep link would need adjusting.
-        $scan(
-            '#__icagenda_events',
-            ['image', 'file', 'shortdesc', 'desc', 'params', 'version_customfields'],
-            'title',
-            'icagenda',
-            static function ($row) {
+            }],
+            ['#__icagenda_events', ['image', 'file', 'shortdesc', 'desc', 'params', 'version_customfields'], 'title', 'icagenda', static function ($row) {
                 return 'index.php?option=com_icagenda&view=events';
-            }
-        );
-
-        $scan(
-            '#__jdownloads_files',
-            ['file_pic', 'images', 'url_download', 'preview_filename', 'description', 'description_long'],
-            'title',
-            'jdownloads',
-            static function ($row) {
+            }],
+            ['#__jdownloads_files', ['file_pic', 'images', 'url_download', 'preview_filename', 'description', 'description_long'], 'title', 'jdownloads', static function ($row) {
                 return 'index.php?option=com_jdownloads&view=files';
-            }
-        );
-
-        // Confirmed via the site's own admin menu: this extension's
-        // element is "com_gallery" (shown in the sidebar as "Gallery"),
-        // not "com_bagallery" as originally guessed.
-        $scan(
-            '#__gallery_items',
-            ['path', 'url', 'thumbnail_url', 'name', 'settings'],
-            'title',
-            'bagallery',
-            static function ($row) {
+            }],
+            // Confirmed via the site's own admin menu: this extension's
+            // element is "com_gallery" (shown in the sidebar as "Gallery"),
+            // not "com_bagallery" as originally guessed.
+            ['#__gallery_items', ['path', 'url', 'thumbnail_url', 'name', 'settings'], 'title', 'bagallery', static function ($row) {
                 return 'index.php?option=com_gallery&view=galleries';
-            }
-        );
-
-        $this->scanCustomFields($linkedItems, $references);
-
-        // De-duplicate identical references per file (e.g. a match found in
-        // both the title and the body of the same article).
-        foreach ($references as $relative => $refs) {
-            $seen   = [];
-            $unique = [];
-
-            foreach ($refs as $ref) {
-                $key = $ref['type'] . '|' . $ref['url'] . '|' . $ref['title'];
-
-                if (!isset($seen[$key])) {
-                    $seen[$key] = true;
-                    $unique[]   = $ref;
-                }
-            }
-
-            $references[$relative] = $unique;
-        }
-
-        return $references;
+            }],
+        ];
     }
 
     /**
-     * Scan custom field values for references. Only fields attached to
-     * articles (com_content.article) get a clickable deep link, since that
-     * is the only context with a predictable, generic edit URL; matches in
-     * fields on other content types are still reported, just without a link.
+     * For every linked file, find which article(s), module(s), menu
+     * item(s), custom fields etc. reference it, so "Gekoppelde media"
+     * can show a deep link straight to the right edit screen. Each
+     * reference found is handed to $emit straight away rather than
+     * collected here.
      *
-     * @param   array  $linkedItems
-     * @param   array  &$references  Passed by reference, same shape as buildReferenceIndex()'s return value.
+     * Resumable: $cursor remembers which source and which row it had
+     * reached, so the work can be spread over several short requests.
      *
-     * @return  void
+     * @param   array       $linkedItems  Linked items, 0-based.
+     * @param   array       $nameIndex    See findReferencedFiles().
+     * @param   array       &$cursor      ['s' => source number, 'c' => forEachTableRow() cursor]; start with ['s' => 0, 'c' => null].
+     * @param   float|null  $deadline     microtime(true) value to pause at, or null to run to the end.
+     * @param   callable    $emit         function (string $relativePath, string $type, string $title, ?string $url): void
+     *
+     * @return  boolean  true when every source has been read, false when paused at the deadline.
      */
-    protected function scanCustomFields(array $linkedItems, array &$references)
+    protected function collectReferences(array $linkedItems, array $nameIndex, array &$cursor, $deadline, callable $emit)
     {
-        $db = $this->db;
+        $sources = $this->getReferenceSources();
+        $total   = \count($sources);
 
-        try {
-            $query = $db->getQuery(true)
-                ->select([
-                    $db->quoteName('fv.item_id', 'item_id'),
-                    $db->quoteName('fv.value', 'value'),
-                    $db->quoteName('f.title', 'field_title'),
-                    $db->quoteName('f.context', 'context'),
-                ])
-                ->from($db->quoteName('#__fields_values', 'fv'))
-                ->join('INNER', $db->quoteName('#__fields', 'f') . ' ON ' . $db->quoteName('f.id') . ' = ' . $db->quoteName('fv.field_id'));
+        while ($cursor['s'] < $total) {
+            [$table, $textColumns, $titleColumn, $type, $urlBuilder] = $sources[$cursor['s']];
 
-            $db->setQuery($query);
-            $rows = $db->loadAssocList();
-        } catch (\Exception $e) {
-            return;
-        }
+            $columns = array_values(array_unique(array_merge(['id', $titleColumn], $textColumns)));
 
-        foreach ($rows as $row) {
-            $haystack = (string) ($row['value'] ?? '');
+            $result = $this->forEachTableRow(
+                $table,
+                $columns,
+                'id',
+                function (array $row) use ($emit, $nameIndex, $linkedItems, $textColumns, $titleColumn, $type, $urlBuilder) {
+                    $haystack = '';
 
-            if (trim($haystack) === '') {
-                continue;
+                    foreach ($textColumns as $column) {
+                        $haystack .= ' ' . (string) ($row[$column] ?? '');
+                    }
+
+                    if (trim($haystack) === '') {
+                        return;
+                    }
+
+                    $found = $this->findReferencedFiles($haystack, $nameIndex, $linkedItems);
+
+                    if (empty($found)) {
+                        return;
+                    }
+
+                    $title = (string) ($row[$titleColumn] ?? '');
+                    $url   = $urlBuilder($row);
+
+                    foreach ($found as $relative) {
+                        $emit($relative, $type, $title, $url);
+                    }
+                },
+                $deadline,
+                $cursor['c']
+            );
+
+            if ($result['reason'] === 'deadline') {
+                return false;
             }
 
-            foreach ($linkedItems as $file) {
-                if (!$this->isReferenced($file, $haystack)) {
+            $cursor['s']++;
+            $cursor['c'] = null;
+        }
+
+        // Custom fields come last, as one more "source" ($total). Only
+        // fields attached to articles (com_content.article) get a
+        // clickable deep link, since that is the only context with a
+        // predictable, generic edit URL; matches in fields on other
+        // content types are still reported, just without a link.
+        if ($cursor['s'] === $total) {
+            $db = $this->db;
+
+            // The field definitions are few and small; the *values*
+            // table is the one that can get large, so that is read in
+            // chunks and matched to its field here rather than with one
+            // big JOIN.
+            try {
+                $query = $db->getQuery(true)
+                    ->select($db->quoteName(['id', 'title', 'context']))
+                    ->from($db->quoteName('#__fields'));
+
+                $db->setQuery($query);
+                $fields = $db->loadAssocList('id');
+            } catch (\Exception $e) {
+                $fields = [];
+            }
+
+            if (!empty($fields)) {
+                $result = $this->forEachTableRow(
+                    '#__fields_values',
+                    ['field_id', 'item_id', 'value'],
+                    null,
+                    function (array $row) use ($emit, $fields, $nameIndex, $linkedItems) {
+                        $field = $fields[$row['field_id']] ?? null;
+
+                        if ($field === null) {
+                            return;
+                        }
+
+                        $haystack = (string) ($row['value'] ?? '');
+
+                        if (trim($haystack) === '') {
+                            return;
+                        }
+
+                        foreach ($this->findReferencedFiles($haystack, $nameIndex, $linkedItems) as $relative) {
+                            if ($field['context'] === 'com_content.article' && is_numeric($row['item_id'])) {
+                                $emit(
+                                    $relative,
+                                    'field',
+                                    Text::sprintf('COM_MEDIACLEANER_REF_FIELD_ARTICLE', $field['title']),
+                                    'index.php?option=com_content&task=article.edit&id=' . (int) $row['item_id']
+                                );
+                            } else {
+                                $emit($relative, 'field', Text::sprintf('COM_MEDIACLEANER_REF_FIELD_GENERIC', $field['title']), null);
+                            }
+                        }
+                    },
+                    $deadline,
+                    $cursor['c']
+                );
+
+                if ($result['reason'] === 'deadline') {
+                    return false;
+                }
+            }
+
+            $cursor['s']++;
+            $cursor['c'] = null;
+        }
+
+        return true;
+    }
+
+    /**
+     * Sweep the core Joomla tables that commonly reference media files
+     * (see $curatedSources): articles, modules, categories, menu items,
+     * custom fields, contacts and banners. Each row is checked against
+     * the file lookup index and then discarded. This pass has no time
+     * budget of its own - however large the site, every article is
+     * always searched; $deadline only *pauses* it.
+     *
+     * @param   array       &$items    Items array, modified in place.
+     * @param   array       $index     Result of buildFileLookupIndex().
+     * @param   array       &$cursor   ['t' => table number, 'c' => forEachTableRow() cursor]; start with ['t' => 0, 'c' => null].
+     * @param   float|null  $deadline  microtime(true) value to pause at, or null to run to the end.
+     *
+     * @return  boolean  true when finished, false when paused at the deadline.
+     */
+    protected function sweepCuratedContent(array &$items, array $index, array &$cursor, $deadline)
+    {
+        $tables = array_keys($this->curatedSources);
+
+        while ($cursor['t'] < \count($tables)) {
+            $table = $tables[$cursor['t']];
+
+            // Table/columns not present on this Joomla version: the
+            // first query fails and the table is skipped silently.
+            $result = $this->forEachTableRow(
+                $table,
+                $this->curatedSources[$table],
+                $table === '#__fields_values' ? null : 'id',
+                function (array $row) use (&$items, $index) {
+                    $this->matchIndexedCandidates($items, $row, $index);
+                },
+                $deadline,
+                $cursor['c']
+            );
+
+            if ($result['reason'] === 'deadline') {
+                return false;
+            }
+
+            $cursor['t']++;
+            $cursor['c'] = null;
+        }
+
+        return true;
+    }
+
+    /**
+     * Sweep every database table (aside from this component's own and
+     * the excluded noise patterns - see $genericScanExcludeTablePatterns)
+     * for text columns, checking each row against the lookup index as
+     * soon as it's read and then discarding it. This is what lets any
+     * third-party extension's media references be picked up
+     * automatically, without a hand-maintained list of tables per
+     * extension.
+     *
+     * Resumable: $state carries the table list, the position reached
+     * and the diagnostic stats from one call to the next. Unlike the
+     * curated sweep this one does have a total time budget ($budget
+     * seconds over all calls together) - a site can hold gigabytes of
+     * unrelated data in other extensions' tables.
+     *
+     * SHOW TABLES / SHOW COLUMNS rather than information_schema: both
+     * are available to any MySQL/MariaDB user that can use the database
+     * at all, while information_schema access is restricted on some
+     * shared hosting setups (exactly what happened on bmwcruiser.nl).
+     *
+     * @param   array       &$items    Items array, modified in place.
+     * @param   array       $index     Result of buildFileLookupIndex().
+     * @param   array       &$state    Start with []; see below for the keys.
+     * @param   float|null  $deadline  microtime(true) value to pause at, or null to run to the end.
+     * @param   integer     $budget    Total seconds allowed over all calls.
+     *
+     * @return  boolean  true when finished (or out of budget), false when paused at the deadline.
+     */
+    protected function sweepGenericTables(array &$items, array $index, array &$state, $deadline, $budget)
+    {
+        $db     = $this->db;
+        $prefix = $db->getPrefix();
+        $start  = microtime(true);
+
+        if (empty($state)) {
+            $state = [
+                'tables'  => [],
+                'i'       => 0,
+                'c'       => null,
+                'spent'   => 0.0,
+                'stats'   => [
+                    'tables_total'        => 0,
+                    'tables_excluded'     => 0,
+                    'tables_scanned'      => 0,
+                    'rows_checked'        => 0,
+                    'stopped_reason'      => 'finished',
+                    'last_tables_scanned' => [],
+                    'sample_excluded'     => [],
+                ],
+            ];
+
+            $excludePatterns = array_map(
+                static function ($pattern) use ($prefix) {
+                    return str_replace('#__', $prefix, $pattern);
+                },
+                $this->genericScanExcludeTablePatterns
+            );
+
+            try {
+                $db->setQuery('SHOW TABLES LIKE ' . $db->quote($prefix . '%'));
+                $tables = $db->loadColumn();
+            } catch (\Exception $e) {
+                $state['stats']['stopped_reason'] = 'could not list tables: ' . $e->getMessage();
+                Log::add('Media Cleaner: generic table sweep could not list tables (' . $e->getMessage() . ') - skipped.', Log::WARNING, 'jerror');
+
+                return true;
+            }
+
+            $state['stats']['tables_total'] = \count($tables);
+
+            foreach ($tables as $table) {
+                if ($this->tableNameMatchesAnyPattern($table, $excludePatterns)) {
+                    $state['stats']['tables_excluded']++;
+
+                    if (\count($state['stats']['sample_excluded']) < 15) {
+                        $state['stats']['sample_excluded'][] = $table;
+                    }
+
                     continue;
                 }
 
-                $relative = trim($file['path'], '/') . '/' . $file['name'];
-
-                if ($row['context'] === 'com_content.article' && is_numeric($row['item_id'])) {
-                    $references[$relative][] = [
-                        'type'  => 'field',
-                        'title' => Text::sprintf('COM_MEDIACLEANER_REF_FIELD_ARTICLE', $row['field_title']),
-                        'url'   => 'index.php?option=com_content&task=article.edit&id=' . (int) $row['item_id'],
-                    ];
-                } else {
-                    $references[$relative][] = [
-                        'type'  => 'field',
-                        'title' => Text::sprintf('COM_MEDIACLEANER_REF_FIELD_GENERIC', $row['field_title']),
-                        'url'   => null,
-                    ];
-                }
+                $state['tables'][] = $table;
             }
         }
+
+        $budgetDeadline    = $start + max(0.0, $budget - $state['spent']);
+        $effectiveDeadline = $deadline === null ? $budgetDeadline : min($deadline, $budgetDeadline);
+
+        $textTypes    = ['varchar', 'text', 'tinytext', 'mediumtext', 'longtext', 'char'];
+        $integerTypes = ['tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint'];
+
+        // Columns sweepCuratedContent() has already read in full, keyed
+        // by real (prefixed, lowercased) table name - not read again
+        // here, so the largest table on most sites (`#__content`) isn't
+        // searched twice.
+        $alreadyCovered = [];
+
+        foreach ($this->curatedSources as $curatedTable => $curatedColumns) {
+            $alreadyCovered[strtolower(str_replace('#__', $prefix, $curatedTable))] = array_map('strtolower', $curatedColumns);
+        }
+
+        $finished = true;
+
+        while ($state['i'] < \count($state['tables'])) {
+            if (microtime(true) >= $budgetDeadline) {
+                $state['stats']['stopped_reason'] = 'time budget reached';
+                break;
+            }
+
+            $table = $state['tables'][$state['i']];
+
+            try {
+                $db->setQuery('SHOW COLUMNS FROM ' . $db->quoteName($table));
+                $columnRows = $db->loadAssocList();
+            } catch (\Exception $e) {
+                // Table disappeared mid-scan or similar - skip it.
+                $state['i']++;
+                $state['c'] = null;
+
+                continue;
+            }
+
+            $columns     = [];
+            $primaryKeys = [];
+            $covered     = $alreadyCovered[strtolower($table)] ?? [];
+
+            foreach ($columnRows as $columnRow) {
+                // Column type strings look like "varchar(255)", "text",
+                // "int(10) unsigned", "bigint unsigned" - only the
+                // leading word matters.
+                $type = strtolower((string) ($columnRow['Type'] ?? ''));
+                $type = preg_match('~^[a-z]+~', $type, $typeMatch) ? $typeMatch[0] : $type;
+
+                if (($columnRow['Key'] ?? '') === 'PRI') {
+                    $primaryKeys[] = ['field' => $columnRow['Field'], 'integer' => \in_array($type, $integerTypes, true)];
+                }
+
+                if (\in_array($type, $textTypes, true) && !\in_array(strtolower((string) $columnRow['Field']), $covered, true)) {
+                    $columns[] = $columnRow['Field'];
+                }
+            }
+
+            if (empty($columns)) {
+                $state['i']++;
+                $state['c'] = null;
+
+                continue;
+            }
+
+            if ($state['c'] === null) {
+                $state['stats']['tables_scanned']++;
+                $state['stats']['last_tables_scanned'][] = $table;
+
+                if (\count($state['stats']['last_tables_scanned']) > 15) {
+                    array_shift($state['stats']['last_tables_scanned']);
+                }
+            }
+
+            // A single integer primary key lets forEachTableRow() page
+            // through the table by key ("WHERE id > last"), which stays
+            // fast however large the table is. Anything else falls back
+            // to LIMIT/OFFSET.
+            $keyColumn  = \count($primaryKeys) === 1 && $primaryKeys[0]['integer'] ? $primaryKeys[0]['field'] : null;
+            $rowsBefore = $state['c']['rows'] ?? 0;
+
+            $result = $this->forEachTableRow(
+                $table,
+                $columns,
+                $keyColumn,
+                function (array $row) use (&$items, $index) {
+                    $this->matchIndexedCandidates($items, $row, $index);
+                },
+                $effectiveDeadline,
+                $state['c']
+            );
+
+            $state['stats']['rows_checked'] += $result['rows'] - $rowsBefore;
+
+            if ($result['reason'] === 'deadline') {
+                if (microtime(true) >= $budgetDeadline) {
+                    $state['stats']['stopped_reason'] = 'time budget reached';
+                } else {
+                    $finished = false;
+                }
+
+                break;
+            }
+
+            // 'finished', or 'error' (table/columns changed shape
+            // mid-scan, or a transient DB error): on to the next table
+            // rather than failing the whole scan over one bad table.
+            $state['i']++;
+            $state['c'] = null;
+        }
+
+        $state['spent'] += microtime(true) - $start;
+
+        return $finished;
     }
 
     /**
-     * Sweep the core Joomla tables that commonly reference media files,
-     * checking each row against the file lookup index and then discarding
-     * it, rather than concatenating everything into one big string first.
+     * Read the text content of every source file under one of
+     * $codeScanDirs (see $codeScanExtensions), checking each file's
+     * content against the lookup index and then discarding it - so a
+     * media reference hardcoded in a template override, a system plugin
+     * or a third-party component's own bundled UI is still picked up.
      *
-     * Covered: articles, modules, categories, menu items, custom fields,
-     * contacts and banners. Third-party extensions (IC Agenda, JDownloads,
-     * BA Gallery, and anything else) no longer need a hand-curated entry
-     * here: since v1.17.0 the generic sweep (sweepGenericTables()) checks
-     * every table via the same fast, extension-pattern-based index lookup
-     * used here, so it's both fast enough and general enough to find them
-     * without needing to know their schema in advance. This method stays
-     * as a small, fast, always-completes-first pass over Joomla's own
-     * core tables specifically - cheap insurance in case the generic
-     * sweep is ever interrupted before reaching them.
-     *
-     * @param   array  &$items  Items array, modified in place.
-     * @param   array  $index   Result of buildFileLookupIndex().
+     * @param   array    &$items    Items array, modified in place.
+     * @param   array    $index     Result of buildFileLookupIndex().
+     * @param   string   $dir       One of $codeScanDirs.
+     * @param   float    $deadline  microtime(true) value to stop at.
+     * @param   array    &$stats    ['dirs_covered' => [], 'files_scanned' => 0, 'stopped_reason' => 'finished']
      *
      * @return  void
      */
-    protected function sweepCuratedContent(array &$items, array $index)
+    protected function sweepCodeDirectory(array &$items, array $index, $dir, $deadline, array &$stats)
     {
-        $db = $this->db;
+        $path = rtrim(JPATH_ROOT, '/\\') . '/' . $dir;
 
-        $sources = [
-            '#__content'         => ['introtext', 'fulltext', 'images', 'metadesc', 'metakey'],
-            '#__modules'         => ['content', 'params'],
-            '#__categories'      => ['description', 'params'],
-            '#__menu'            => ['link', 'params'],
-            '#__fields_values'   => ['value'],
-            '#__contact_details' => ['misc', 'address', 'params'],
-            '#__banners'         => ['description', 'params'],
-        ];
+        if (!is_dir($path)) {
+            return;
+        }
 
-        foreach ($sources as $table => $columns) {
-            try {
-                $query = $db->getQuery(true)
-                    ->select($db->quoteName($columns))
-                    ->from($db->quoteName($table));
+        $stats['dirs_covered'][] = $dir;
 
-                $db->setQuery($query);
-                $rows = $db->loadRowList();
-            } catch (\Exception $e) {
-                // Table/columns not present on this Joomla version - skip
-                // silently.
-                continue;
+        try {
+            $iterator = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::SELF_FIRST
+            );
+
+            // The foreach itself is inside this try block:
+            // RecursiveDirectoryIterator can throw *during* iteration
+            // (e.g. on a permission-denied subdirectory), not only when
+            // it's constructed.
+            foreach ($iterator as $file) {
+                if (microtime(true) >= $deadline) {
+                    $stats['stopped_reason'] = 'deadline reached';
+
+                    return;
+                }
+
+                if (!$file->isFile()) {
+                    continue;
+                }
+
+                if (!\in_array(strtolower($file->getExtension()), $this->codeScanExtensions, true)) {
+                    continue;
+                }
+
+                $size = $file->getSize();
+
+                if ($size <= 0 || $size > $this->codeScanMaxFileBytes) {
+                    continue;
+                }
+
+                $content = @file_get_contents($file->getPathname());
+
+                if ($content === false || $content === '') {
+                    continue;
+                }
+
+                $this->matchIndexedCandidates($items, [$content], $index);
+                $stats['files_scanned']++;
             }
-
-            foreach ($rows as $row) {
-                $this->matchIndexedCandidates($items, $row, $index);
-            }
+        } catch (\Exception $e) {
+            // Unreadable subdirectory or similar - keep whatever was
+            // already found in this directory.
         }
     }
 
     /**
-     * Recursively walk the whole Joomla installation and collect every file
-     * whose extension matches one of the configured graphic file types.
+     * Walk the Joomla installation and report every media file (see
+     * $extensions) to $onFile, folder by folder.
      *
-     * @return  array
+     * v2.8.3: replaces the single RecursiveDirectoryIterator pass.
+     * Resumable - $walk holds the folders still to visit and how far
+     * into the current one it got - so a site with hundreds of thousands
+     * of files can be walked over several short requests. Entries are
+     * visited in alphabetical order (a folder's own files first, then
+     * its subfolders), so a scan gives the same result regardless of the
+     * order the filesystem happens to list things in.
+     *
+     * Skipped, at any depth: hidden entries (.git, .well-known, ...),
+     * the folders in $excludeDirs, and symlinked folders (avoids
+     * infinite loops).
+     *
+     * @param   array       &$walk     Start with ['stack' => [''], 'cur' => null].
+     * @param   float|null  $deadline  microtime(true) value to pause at, or null to run to the end.
+     * @param   callable    $onDir     function (string $relDir): void - called before the first file of a folder
+     *                                 ('' for the root, no leading or trailing slash). May be called again for the
+     *                                 same folder when a walk resumes in the middle of it.
+     * @param   callable    $onFile    function (string $name, string $absolutePath, int $size, ?int $mtime, string $extension): void
+     *
+     * @return  boolean  true when the whole tree has been walked, false when paused at the deadline.
      */
-    protected function scanFilesystem()
+    protected function walkFilesystem(array &$walk, $deadline, callable $onDir, callable $onFile)
     {
-        $root    = rtrim(JPATH_ROOT, '/\\');
-        $exclude = $this->excludeDirs;
-        $results = [];
+        $root = rtrim(JPATH_ROOT, '/\\');
 
-        if (!is_dir($root) || !is_readable($root)) {
-            return $results;
-        }
-
-        try {
-            $directoryIterator = new RecursiveDirectoryIterator(
-                $root,
-                FilesystemIterator::SKIP_DOTS | FilesystemIterator::UNIX_PATHS
-            );
-
-            $filterIterator = new RecursiveCallbackFilterIterator(
-                $directoryIterator,
-                function ($current) use ($exclude) {
-                    $name = $current->getFilename();
-
-                    // Skip hidden files/folders (.git, .well-known, ...)
-                    if (substr($name, 0, 1) === '.') {
-                        return false;
-                    }
-
-                    if ($current->isDir()) {
-                        if (in_array(strtolower($name), $exclude, true)) {
-                            return false;
-                        }
-
-                        // Never follow symlinks: avoids infinite loops.
-                        if ($current->isLink()) {
-                            return false;
-                        }
-                    }
-
+        while (true) {
+            if ($walk['cur'] === null) {
+                if (empty($walk['stack'])) {
                     return true;
                 }
-            );
 
-            $iterator = new RecursiveIteratorIterator(
-                $filterIterator,
-                RecursiveIteratorIterator::LEAVES_ONLY,
-                RecursiveIteratorIterator::CATCH_GET_CHILD
-            );
-        } catch (\Exception $e) {
-            return $results;
-        }
-
-        foreach ($iterator as $fileInfo) {
-            if (!$fileInfo->isFile()) {
-                continue;
-            }
-
-            $extension = strtolower($fileInfo->getExtension());
-
-            if (!in_array($extension, $this->extensions, true)) {
-                continue;
-            }
-
-            $fullPath = $fileInfo->getPathname();
-            $relDir   = ltrim(str_replace($root, '', $fileInfo->getPath()), '/\\');
-            $relDir   = str_replace('\\', '/', $relDir);
-
-            $relFile = ($relDir === '' ? '' : $relDir . '/') . $fileInfo->getFilename();
-            $urlPath = implode('/', array_map('rawurlencode', explode('/', $relFile)));
-
-            $size = 0;
-
-            try {
-                $size = $fileInfo->getSize();
-            } catch (\Exception $e) {
-                // Unreadable file, skip size but still list it.
-            }
-
-            $type = $extension === 'tiff' ? 'tif' : $extension;
-
-            $modifiedAt = null;
-
-            try {
-                $mtime = $fileInfo->getMTime();
-
-                if ($mtime !== false) {
-                    $modifiedAt = date('Y-m-d H:i:s', $mtime);
+                if ($deadline !== null && microtime(true) >= $deadline) {
+                    return false;
                 }
-            } catch (\Exception $e) {
-                // Unreadable mtime - leave null, just skip the
-                // manual-upload-date heuristic for this one file.
+
+                $walk['cur'] = ['dir' => array_pop($walk['stack']), 'offset' => 0, 'subdirs' => []];
             }
 
-            $results[] = [
-                'name'             => $fileInfo->getFilename(),
-                'path'             => $relDir === '' ? '/' : '/' . $relDir,
-                'size'             => $size,
-                'sizeKB'           => $size / 1024,
-                'type'             => $type,
-                'url'              => rtrim(Uri::root(), '/') . '/' . $urlPath,
-                'noPreview'        => $type === 'svg' ? $this->svgHasNoVisualContent($fullPath, $size) : false,
-                'isThumbsDir'      => $this->pathHasThumbsSegment($relDir),
-                'isSystemAssetDir' => $this->pathHasSystemAssetSegment($relDir),
-                'modifiedAt'       => $modifiedAt,
-            ];
+            $relDir  = $walk['cur']['dir'];
+            $absDir  = $relDir === '' ? $root : $root . '/' . $relDir;
+            $entries = @scandir($absDir);
+
+            if ($entries === false) {
+                $walk['cur'] = null;
+
+                continue;
+            }
+
+            $count     = \count($entries);
+            $first     = $walk['cur']['offset'];
+            $announced = false;
+
+            for ($i = $first; $i < $count; $i++) {
+                // Checked every 64 entries, and never before at least
+                // one batch of this call has been handled - so even an
+                // absurdly short deadline still makes progress.
+                if ($deadline !== null && $i > $first && ($i & 63) === 0 && microtime(true) >= $deadline) {
+                    $walk['cur']['offset'] = $i;
+
+                    return false;
+                }
+
+                $name = (string) $entries[$i];
+
+                if ($name === '' || $name[0] === '.') {
+                    continue;
+                }
+
+                $full = $absDir . '/' . $name;
+
+                if (is_dir($full)) {
+                    if (!\in_array(strtolower($name), $this->excludeDirs, true) && !is_link($full)) {
+                        $walk['cur']['subdirs'][] = $name;
+                    }
+
+                    continue;
+                }
+
+                $dot = strrpos($name, '.');
+
+                if ($dot === false) {
+                    continue;
+                }
+
+                $extension = strtolower(substr($name, $dot + 1));
+
+                if (!\in_array($extension, $this->extensions, true) || !is_file($full)) {
+                    continue;
+                }
+
+                if (!$announced) {
+                    $onDir($relDir);
+                    $announced = true;
+                }
+
+                $size  = @filesize($full);
+                $mtime = @filemtime($full);
+
+                $onFile($name, $full, $size === false ? 0 : (int) $size, $mtime === false ? null : (int) $mtime, $extension);
+            }
+
+            // Pushed in reverse so they come off the stack alphabetically.
+            foreach (array_reverse($walk['cur']['subdirs']) as $subdir) {
+                $walk['stack'][] = $relDir === '' ? $subdir : $relDir . '/' . $subdir;
+            }
+
+            $walk['cur'] = null;
+        }
+    }
+
+    /**
+     * Reads $columns of every row of $table and hands each row (as an
+     * associative array) to $callback, a bounded number of rows per
+     * query - see $chunkRowsStart for how the chunk size adapts. Nothing
+     * is accumulated here: once $callback returns, the row is gone.
+     *
+     * v2.8.3: replaces the unbounded "SELECT ... FROM table" calls the
+     * curated sweep and the reference index used to make. Those pulled
+     * an entire table - every article body on the site - into memory in
+     * one go, which is what ran a 512 MB memory_limit dry on a site with
+     * a very large `#__content` table.
+     *
+     * @param   string         $table      Table name; "#__" prefix notation or a real name.
+     * @param   array          $columns    Columns to read.
+     * @param   string|null    $keyColumn  Integer, unique, indexed column to page by
+     *                                     ("WHERE key > last ORDER BY key"); null to page
+     *                                     by LIMIT/OFFSET. If the keyed query fails outright
+     *                                     on the first chunk, OFFSET paging is tried instead.
+     * @param   callable       $callback   function (array $row): void
+     * @param   float|null     $deadline   microtime(true) value to pause at, or null for none. At least one
+     *                                     chunk is always read per call, so repeated calls always advance.
+     * @param   array|null     &$cursor    Position to resume from / reached; pass null to start at the top.
+     *                                     Only meaningful after a 'deadline' result.
+     *
+     * @return  array  ['rows' => int (total so far, over all calls with this cursor), 'reason' => 'finished'|'deadline'|'error']
+     */
+    protected function forEachTableRow($table, array $columns, $keyColumn, callable $callback, $deadline = null, &$cursor = null)
+    {
+        $db = $this->db;
+
+        if (!\is_array($cursor)) {
+            $cursor = ['key' => null, 'offset' => 0, 'limit' => $this->chunkRowsStart, 'rows' => 0, 'nokey' => false];
         }
 
-        return $results;
+        if ($cursor['nokey']) {
+            $keyColumn = null;
+        }
+
+        $keyIsData  = $keyColumn !== null && \in_array($keyColumn, $columns, true);
+        $chunksDone = 0;
+
+        while (true) {
+            if ($deadline !== null && $chunksDone > 0 && microtime(true) >= $deadline) {
+                return ['rows' => $cursor['rows'], 'reason' => 'deadline'];
+            }
+
+            try {
+                $query = $db->getQuery(true)->from($db->quoteName($table));
+
+                if ($keyColumn !== null) {
+                    $query->select($db->quoteName($keyIsData ? $columns : array_merge($columns, [$keyColumn])));
+
+                    if ($cursor['key'] !== null) {
+                        $query->where($db->quoteName($keyColumn) . ' > ' . (int) $cursor['key']);
+                    }
+
+                    $query->order($db->quoteName($keyColumn) . ' ASC')->setLimit($cursor['limit']);
+                } else {
+                    $query->select($db->quoteName($columns))->setLimit($cursor['limit'], $cursor['offset']);
+                }
+
+                $db->setQuery($query);
+                $rows = $db->loadAssocList();
+            } catch (\Exception $e) {
+                if ($keyColumn !== null && $cursor['rows'] === 0) {
+                    // No such key column on this table after all -
+                    // retry the plain way before giving up on it.
+                    $keyColumn       = null;
+                    $keyIsData       = false;
+                    $cursor['nokey'] = true;
+
+                    continue;
+                }
+
+                return ['rows' => $cursor['rows'], 'reason' => 'error'];
+            }
+
+            $fetched = \is_array($rows) ? \count($rows) : 0;
+
+            if ($fetched === 0) {
+                break;
+            }
+
+            $bytes = 0;
+
+            foreach ($rows as $row) {
+                if ($keyColumn !== null) {
+                    $cursor['key'] = $row[$keyColumn];
+
+                    if (!$keyIsData) {
+                        unset($row[$keyColumn]);
+                    }
+                }
+
+                foreach ($row as $value) {
+                    $bytes += \strlen((string) $value);
+                }
+
+                $callback($row);
+            }
+
+            unset($rows);
+
+            $cursor['rows']   += $fetched;
+            $cursor['offset'] += $fetched;
+            $chunksDone++;
+
+            if ($fetched < $cursor['limit']) {
+                // Reached the end of this table.
+                break;
+            }
+
+            if ($bytes > $this->chunkTargetBytes) {
+                $cursor['limit'] = max($this->chunkRowsMin, intdiv($cursor['limit'], 2));
+            } elseif ($bytes < intdiv($this->chunkTargetBytes, 4)) {
+                $cursor['limit'] = min($this->chunkRowsMax, $cursor['limit'] * 2);
+            }
+        }
+
+        return ['rows' => $cursor['rows'], 'reason' => 'finished'];
     }
 
     /**

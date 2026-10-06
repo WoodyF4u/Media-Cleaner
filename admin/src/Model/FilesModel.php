@@ -14,7 +14,7 @@ use Joomla\CMS\Factory;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\Model\BaseDatabaseModel;
 use Joomla\Component\Mediacleaner\Administrator\Service\QuarantineManager;
-use Joomla\Component\Mediacleaner\Administrator\Service\Scanner;
+use Joomla\Component\Mediacleaner\Administrator\Service\ScanJob;
 use Joomla\Component\Mediacleaner\Administrator\Service\WebpConverter;
 
 /**
@@ -37,7 +37,7 @@ use Joomla\Component\Mediacleaner\Administrator\Service\WebpConverter;
 class FilesModel extends BaseDatabaseModel
 {
     /**
-     * @var Scanner|null
+     * @var ScanJob|null
      */
     protected $scanner;
 
@@ -52,12 +52,12 @@ class FilesModel extends BaseDatabaseModel
     protected $webpConverter;
 
     /**
-     * @return  Scanner
+     * @return  ScanJob
      */
     protected function getScanner()
     {
         if ($this->scanner === null) {
-            $this->scanner = new Scanner($this->getDatabase());
+            $this->scanner = new ScanJob($this->getDatabase());
         }
 
         return $this->scanner;
@@ -912,98 +912,108 @@ class FilesModel extends BaseDatabaseModel
             return 0;
         }
 
-        $db    = $this->getDatabase();
-        $query = $db->getQuery(true)
-            ->select(['id', 'path', 'name'])
-            ->from($db->quoteName('#__mediacleaner_files'))
-            ->where($db->quoteName('id') . ' IN (' . implode(',', $ids) . ')');
+        $db      = $this->getDatabase();
+        $now     = Factory::getDate()->toSql();
+        $updated = 0;
 
-        $db->setQuery($query);
+        // v2.8.3: worked through 200 files at a time, with a fixed
+        // handful of queries per batch. This used to send one query
+        // listing every id at once, followed by two or three more
+        // queries *per file* - fine for a page of 20, but "Selecteer
+        // alle ... (alle pagina's)" or "Zet systeembestanden apart" on a
+        // large site means tens of thousands of files in one request.
+        // What ends up in the database is exactly the same as before.
+        foreach (array_chunk($ids, 200) as $chunk) {
+            $idList = implode(',', $chunk);
 
-        try {
-            $rows = $db->loadAssocList();
-        } catch (\Exception $e) {
-            return 0;
-        }
+            $query = $db->getQuery(true)
+                ->select($db->quoteName(['id', 'path', 'name']))
+                ->from($db->quoteName('#__mediacleaner_files'))
+                ->where($db->quoteName('id') . ' IN (' . $idList . ')');
 
-        if (empty($rows)) {
-            return 0;
-        }
+            $db->setQuery($query);
 
-        $updateQuery = $db->getQuery(true)
-            ->update($db->quoteName('#__mediacleaner_files'))
-            ->set($db->quoteName('ignored') . ' = ' . ($ignored ? 1 : 0))
-            ->where($db->quoteName('id') . ' IN (' . implode(',', $ids) . ')');
+            try {
+                $rows = $db->loadAssocList();
+            } catch (\Exception $e) {
+                continue;
+            }
 
-        $db->setQuery($updateQuery)->execute();
+            if (empty($rows)) {
+                continue;
+            }
 
-        $now = Factory::getDate()->toSql();
+            $updateQuery = $db->getQuery(true)
+                ->update($db->quoteName('#__mediacleaner_files'))
+                ->set($db->quoteName('ignored') . ' = ' . ($ignored ? 1 : 0))
+                ->where($db->quoteName('id') . ' IN (' . $idList . ')');
 
-        foreach ($rows as $row) {
-            $relative = trim($row['path'], '/') . '/' . $row['name'];
+            $db->setQuery($updateQuery)->execute();
+
+            $relatives = [];
+
+            foreach ($rows as $row) {
+                $relatives[trim($row['path'], '/') . '/' . $row['name']] = true;
+            }
+
+            $relatives = array_map('strval', array_keys($relatives));
+            $quoted    = implode(',', array_map([$db, 'quote'], $relatives));
+            $wherePath = $db->quoteName('relative_path') . ' IN (' . $quoted . ')';
 
             if ($ignored) {
                 // A deliberate "Negeren" action always wins over
                 // whatever was there before (a prior auto_thumbs
                 // suggestion, a suppression marker, or nothing) - drop
-                // any existing row and record a fresh, plain manual
-                // ignore.
+                // any existing rows and record fresh, plain manual
+                // ignores.
                 $deleteQuery = $db->getQuery(true)
                     ->delete($db->quoteName('#__mediacleaner_ignored'))
-                    ->where($db->quoteName('relative_path') . ' = ' . $db->quote($relative));
+                    ->where($wherePath);
 
                 $db->setQuery($deleteQuery)->execute();
 
                 $insertQuery = $db->getQuery(true)
                     ->insert($db->quoteName('#__mediacleaner_ignored'))
-                    ->columns($db->quoteName(['relative_path', 'ignored_at', 'source', 'suppressed']))
-                    ->values($db->quote($relative) . ',' . $db->quote($now) . ",'manual',0");
+                    ->columns($db->quoteName(['relative_path', 'ignored_at', 'source', 'suppressed']));
+
+                foreach ($relatives as $relative) {
+                    $insertQuery->values($db->quote($relative) . ',' . $db->quote($now) . ",'manual',0");
+                }
 
                 $db->setQuery($insertQuery)->execute();
 
+                $updated += \count($rows);
+
                 continue;
             }
 
-            // Un-ignoring. If the existing row is this component's own
-            // auto_thumbs suggestion (see Scanner::applyAutoIgnoreThumbs()),
-            // don't delete it outright - flip it to a permanent
+            // Un-ignoring. A row that is this component's own
+            // auto_thumbs suggestion (see Scanner::applyAutoIgnoreThumbs())
+            // is not deleted outright - it's flipped to a permanent
             // suppressed marker instead, so a future rescan's
             // auto-ignore pass sees this exact file was already decided
-            // and leaves it alone. A plain manual ignore (or no row at
-            // all) has nothing to protect against re-application, so it
-            // can just be deleted as before.
-            $sourceQuery = $db->getQuery(true)
-                ->select($db->quoteName('source'))
-                ->from($db->quoteName('#__mediacleaner_ignored'))
-                ->where($db->quoteName('relative_path') . ' = ' . $db->quote($relative));
+            // and leaves it alone. A plain manual ignore has nothing to
+            // protect against re-application, so it can just be deleted
+            // as before.
+            $suppressQuery = $db->getQuery(true)
+                ->update($db->quoteName('#__mediacleaner_ignored'))
+                ->set($db->quoteName('suppressed') . ' = 1')
+                ->where($wherePath)
+                ->where($db->quoteName('source') . ' = ' . $db->quote('auto_thumbs'));
 
-            $db->setQuery($sourceQuery);
-
-            try {
-                $existingSource = $db->loadResult();
-            } catch (\Exception $e) {
-                $existingSource = null;
-            }
-
-            if ($existingSource === 'auto_thumbs') {
-                $suppressQuery = $db->getQuery(true)
-                    ->update($db->quoteName('#__mediacleaner_ignored'))
-                    ->set($db->quoteName('suppressed') . ' = 1')
-                    ->where($db->quoteName('relative_path') . ' = ' . $db->quote($relative));
-
-                $db->setQuery($suppressQuery)->execute();
-
-                continue;
-            }
+            $db->setQuery($suppressQuery)->execute();
 
             $deleteQuery = $db->getQuery(true)
                 ->delete($db->quoteName('#__mediacleaner_ignored'))
-                ->where($db->quoteName('relative_path') . ' = ' . $db->quote($relative));
+                ->where($wherePath)
+                ->where($db->quoteName('source') . ' <> ' . $db->quote('auto_thumbs'));
 
             $db->setQuery($deleteQuery)->execute();
+
+            $updated += \count($rows);
         }
 
-        return count($rows);
+        return $updated;
     }
 
     /**
@@ -1041,11 +1051,11 @@ class FilesModel extends BaseDatabaseModel
     }
 
     /**
-     * Run a fresh filesystem scan and replace the cached table contents.
-     * The actual scan-and-link work happens in Scanner::scan(); this
-     * method's own job is just persisting the result to
-     * `#__mediacleaner_files` / `#__mediacleaner_references`, same as
-     * before the v1.37.0 split.
+     * Run a complete scan in this one request and replace the cached
+     * table contents - the fallback for when the stepped route (see
+     * rescanStep()) isn't available. All the work, including writing
+     * `#__mediacleaner_files` / `#__mediacleaner_references`, happens in
+     * ScanJob.
      *
      * @return  array  ['count' => int, 'sizeKB' => float]
      *
@@ -1059,97 +1069,59 @@ class FilesModel extends BaseDatabaseModel
             throw new \Exception(Text::_('JERROR_ALERTNOAUTHOR'), 403);
         }
 
-        $result         = $this->getScanner()->scan();
-        $items          = $result['items'];
-        $referenceIndex = $result['referenceIndex'];
-
-        $db  = $this->getDatabase();
-        $now = Factory::getDate()->toSql();
-
-        $db->truncateTable('#__mediacleaner_files');
-
-        foreach (array_chunk($items, 200) as $chunk) {
-            $query = $db->getQuery(true)
-                ->insert($db->quoteName('#__mediacleaner_files'))
-                ->columns($db->quoteName(['name', 'path', 'size', 'type', 'url', 'linked', 'link_confidence', 'ignored', 'no_preview', 'is_thumbs_dir', 'is_active_extension_asset', 'is_active_extension_images_dir', 'possibly_orphaned_extension', 'images_dir_extension_name', 'images_dir_extension_removed', 'asset_dir_extension_name', 'asset_dir_extension_removed', 'file_modified_at', 'is_system_asset_dir', 'likely_manual_upload', 'derived_from', 'derived_status', 'scanned_at']));
-
-            foreach ($chunk as $row) {
-                $query->values(
-                    implode(',', [
-                        $db->quote($row['name']),
-                        $db->quote($row['path']),
-                        (int) $row['size'],
-                        $db->quote($row['type']),
-                        $db->quote($row['url']),
-                        $row['linked'] ? 1 : 0,
-                        $db->quote($row['linkConfidence'] ?? 'none'),
-                        $row['ignored'] ? 1 : 0,
-                        !empty($row['noPreview']) ? 1 : 0,
-                        !empty($row['isThumbsDir']) ? 1 : 0,
-                        !empty($row['isActiveExtensionAsset']) ? 1 : 0,
-                        !empty($row['isActiveExtensionImagesDir']) ? 1 : 0,
-                        !empty($row['possiblyOrphanedExtension']) ? 1 : 0,
-                        $row['imagesDirExtensionName'] !== null && $row['imagesDirExtensionName'] !== '' ? $db->quote($row['imagesDirExtensionName']) : 'NULL',
-                        !empty($row['imagesDirExtensionRemoved']) ? 1 : 0,
-                        $row['assetDirExtensionName'] !== null && $row['assetDirExtensionName'] !== '' ? $db->quote($row['assetDirExtensionName']) : 'NULL',
-                        !empty($row['assetDirExtensionRemoved']) ? 1 : 0,
-                        !empty($row['modifiedAt']) ? $db->quote($row['modifiedAt']) : 'NULL',
-                        !empty($row['isSystemAssetDir']) ? 1 : 0,
-                        !empty($row['likelyManualUpload']) ? 1 : 0,
-                        !empty($row['derivedFrom']) ? $db->quote($row['derivedFrom']) : 'NULL',
-                        !empty($row['derivedStatus']) ? $db->quote($row['derivedStatus']) : 'NULL',
-                        $db->quote($now),
-                    ])
-                );
-            }
-
-            $db->setQuery($query)->execute();
-        }
-
-        $db->truncateTable('#__mediacleaner_references');
-
-        $referenceRows = [];
-
-        foreach ($referenceIndex as $relativePath => $refs) {
-            foreach ($refs as $ref) {
-                $referenceRows[] = [
-                    'relative_path' => $relativePath,
-                    'source_type'   => $ref['type'],
-                    'title'         => $ref['title'],
-                    'edit_url'      => $ref['url'],
-                ];
-            }
-        }
-
-        foreach (array_chunk($referenceRows, 200) as $chunk) {
-            $query = $db->getQuery(true)
-                ->insert($db->quoteName('#__mediacleaner_references'))
-                ->columns($db->quoteName(['relative_path', 'source_type', 'title', 'edit_url']));
-
-            foreach ($chunk as $row) {
-                $query->values(
-                    implode(',', [
-                        $db->quote($row['relative_path']),
-                        $db->quote($row['source_type']),
-                        $db->quote($row['title']),
-                        $row['edit_url'] !== null ? $db->quote($row['edit_url']) : 'NULL',
-                    ])
-                );
-            }
-
-            $db->setQuery($query)->execute();
-        }
-
-        $bytes = 0;
-
-        foreach ($items as $item) {
-            $bytes += $item['size'];
-        }
+        // v2.8.3: one implementation for both routes - this simply runs
+        // every step of ScanJob back to back in a single request. The
+        // overview's own "Scan opnieuw uitvoeren" button doesn't come
+        // through here any more when JavaScript is available; it calls
+        // rescanStep() repeatedly instead, so no request is ever long.
+        $job    = $this->getScanner();
+        $status = $job->run($job->start(), null);
 
         return [
-            'count'  => count($items),
-            'sizeKB' => $bytes / 1024,
+            'count'  => $status['count'],
+            'sizeKB' => $status['sizeKB'],
         ];
+    }
+
+    /**
+     * Do a few seconds' worth of a scan and report progress (v2.8.3) -
+     * see ScanJob for how a scan is split into steps and why.
+     *
+     * @param   string   $scanId  Id from a previous call's result, or '' to begin a new scan.
+     * @param   integer  $budget  Seconds of work to aim for in this call.
+     *
+     * @return  array  See ScanJob::run().
+     *
+     * @throws  \Exception  When the current user is not allowed to manage this component,
+     *                      or the scan cannot be continued.
+     */
+    public function rescanStep($scanId, $budget)
+    {
+        $app = Factory::getApplication();
+
+        if (!$app->getIdentity()->authorise('core.manage', 'com_mediacleaner')) {
+            throw new \Exception(Text::_('JERROR_ALERTNOAUTHOR'), 403);
+        }
+
+        $job = $this->getScanner();
+
+        if ((string) $scanId === '') {
+            $scanId = $job->start();
+        }
+
+        return $job->run($scanId, max(2, min(20, (int) $budget)));
+    }
+
+    /**
+     * Whether the last scan was cut off while it was already writing
+     * its result - i.e. the overview is incomplete until a scan is run
+     * again (see ScanJob::hasInterruptedPersist()).
+     *
+     * @return  boolean
+     */
+    public function lastScanWasInterrupted()
+    {
+        return $this->getScanner()->hasInterruptedPersist();
     }
 
     /**

@@ -9,9 +9,11 @@ namespace Joomla\Component\Mediacleaner\Administrator\Controller;
 
 defined('_JEXEC') or die;
 
+use Joomla\CMS\Factory;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\Controller\BaseController;
 use Joomla\CMS\Router\Route;
+use Joomla\CMS\Session\Session;
 use Joomla\Utilities\ArrayHelper;
 
 /**
@@ -47,6 +49,61 @@ class FilesController extends BaseController
         }
 
         $this->setRedirect(Route::_('index.php?option=com_mediacleaner&view=files', false));
+    }
+
+    /**
+     * One step of a scan, answered as JSON (v2.8.3) - called repeatedly
+     * by the script at the bottom of tmpl/files/default.php until the
+     * answer says "done". See ScanJob for how and why a scan is split
+     * up; rescan() above stays as the single-request fallback.
+     *
+     * POST: scan_id ('' to begin a new scan), budget (seconds of work to
+     * aim for), plus the form token.
+     *
+     * Answers {"error": "..."} when the scan cannot proceed, otherwise
+     * ScanJob::run()'s status: done, scanId, phase, percent, label,
+     * count, sizeKB (and busy = true when an earlier request for the
+     * same scan is still being worked on).
+     *
+     * @return  void
+     */
+    public function scanStep()
+    {
+        $app = Factory::getApplication();
+
+        try {
+            if (!Session::checkToken('post')) {
+                throw new \RuntimeException(Text::_('JINVALID_TOKEN'), 403);
+            }
+
+            /** @var \Joomla\Component\Mediacleaner\Administrator\Model\FilesModel $model */
+            $model   = $this->getModel('Files');
+            $payload = $model->rescanStep($this->input->getCmd('scan_id', ''), $this->input->getInt('budget', 8));
+
+            if (!empty($payload['done'])) {
+                // The page reloads itself once it sees "done"; this is
+                // the usual "Scan voltooid" notice waiting for it there.
+                $app->enqueueMessage(
+                    Text::sprintf(
+                        'COM_MEDIACLEANER_RESCAN_DONE',
+                        $payload['count'],
+                        number_format($payload['sizeKB'], 1, ',', '.')
+                    )
+                );
+
+                $app->getSession()->set('application.queue', $app->getMessageQueue());
+            }
+        } catch (\Throwable $e) {
+            $payload = ['error' => $e->getMessage()];
+        }
+
+        $app->setHeader('Content-Type', 'application/json; charset=utf-8', true);
+        $app->setHeader('Cache-Control', 'no-store', true);
+        $app->sendHeaders();
+
+        echo json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE);
+
+        $app->close();
     }
 
     /**

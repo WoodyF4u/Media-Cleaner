@@ -24,6 +24,14 @@ use Joomla\CMS\Uri\Uri;
 class HtmlView extends BaseHtmlView
 {
     /**
+     * Most rows ever rendered on one page, whatever the limit box says
+     * (see display()).
+     *
+     * @var integer
+     */
+    public const MAX_ROWS_PER_PAGE = 1000;
+
+    /**
      * @var array
      */
     protected $items = [];
@@ -388,6 +396,18 @@ class HtmlView extends BaseHtmlView
 
         $activeFilterTotal = $model->getFilteredCount($this->filterLinked, $this->showIgnored, $this->extensionHint, $this->systemAssetFilter);
 
+        // v2.8.3: "Alle" in the limit box means limit 0 = every matching
+        // row on one page. On a library of tens or hundreds of thousands
+        // of files that is the same out-of-memory failure pagination was
+        // introduced to prevent (and a page no browser could display
+        // anyway), so above MAX_ROWS_PER_PAGE it falls back to that many
+        // per page, with a notice saying so.
+        if ($this->limit === 0 && $activeFilterTotal > self::MAX_ROWS_PER_PAGE) {
+            $this->limit = self::MAX_ROWS_PER_PAGE;
+            $app->setUserState('com_mediacleaner.files.limit', $this->limit);
+            $app->enqueueMessage(Text::sprintf('COM_MEDIACLEANER_LIMIT_ALL_CAPPED', $activeFilterTotal, $this->limit), 'notice');
+        }
+
         // If the stored limitstart no longer fits (e.g. the previous
         // filter had more pages than this one, or files were deleted
         // since), snap back to the first page rather than rendering an
@@ -421,6 +441,13 @@ class HtmlView extends BaseHtmlView
 
         $this->hideContentForRescan = $this->autoRescanAfterUpdate
             || $app->getInput()->getInt('mc_auto_rescan', 0) === 1;
+
+        // v2.8.3: a scan writes its result only at the very end. If it
+        // was cut off right then, the overview below is incomplete -
+        // say so, rather than presenting half a list as the truth.
+        if (!$this->hideContentForRescan && $model->lastScanWasInterrupted()) {
+            $app->enqueueMessage(Text::_('COM_MEDIACLEANER_SCAN_INTERRUPTED'), 'warning');
+        }
 
         // Extracted from an inline <style> block in this view's template
         // into its own file (see media/css/admin.css) so the component
