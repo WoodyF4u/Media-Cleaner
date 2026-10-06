@@ -549,12 +549,29 @@ input[type="checkbox"].form-check-input:checked::after {
     width: 0%;
     background: #2980b9;
     border-radius: 3px;
-    transition: width 0.2s linear;
+    transition: width 0.6s ease;
 }
 .mc-rescan-label {
-    flex: 0 0 auto;
-    white-space: nowrap;
+    flex: 0 1 auto;
     font-weight: 600;
+}
+#mc-rescan-overlay.mc-rescan-failed {
+    border-color: #c0392b;
+}
+#mc-rescan-overlay.mc-rescan-failed .mc-rescan-bar-fill {
+    background: #c0392b;
+}
+#mc-rescan-overlay.mc-rescan-failed .mc-rescan-label {
+    color: #c0392b;
+    font-weight: 400;
+}
+.mc-rescan-resume {
+    flex: 0 0 auto;
+}
+/* While a scan runs, the (about to be replaced) list is dimmed and inert. */
+.com-mediacleaner-files.mc-scanning > *:not(#mc-rescan-overlay-slot):not(.mc-page-title) {
+    opacity: 0.35;
+    pointer-events: none;
 }
 
 /* === Help page ============================================================= */
