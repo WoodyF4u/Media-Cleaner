@@ -1,0 +1,254 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index b6c60ca..e026e28 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -5,6 +5,19 @@ controleren of een functie daadwerkelijk is meegenomen.
+ 
+ ## 2.8.3
+ 
++- **Verlopen inlogsessie tijdens het scannen wordt netjes afgehandeld.**
++  - Zolang het Media Cleaner-scherm openstaat, houdt Joomla's eigen
++    keepalive de inlogsessie in leven (zoals bij het bewerken van een
++    artikel). Laat het scherm een uur openstaan en klik dan op "Scan
++    opnieuw uitvoeren": de scan start gewoon.
++  - Is de sessie toch verlopen (bijvoorbeeld na slaapstand), dan stopt de
++    scan direct met de melding "je inlogsessie is verlopen" en een knop
++    "Opnieuw inloggen", die het Joomla-inlogscherm toont. Voorheen kwam er
++    na vier nieuwe pogingen een lap tekst uit het inlogscherm in beeld.
++  - Ben je intussen in een ander tabblad opnieuw ingelogd, dan meldt de
++    scan dat de pagina bij een eerdere sessie hoort, met een knop "Pagina
++    opnieuw laden" in plaats van een "Verder gaan" dat steeds weer zou
++    mislukken.
+ - **Grote sites: de scan loopt niet meer vast.** Op een site met tienduizenden
+   bestanden en artikelen (niburu.co: 37.000 bestanden, 13.600 artikelen)
+   raakte het geheugen op (512 MB) en brak de server de scan daarna af op
+diff --git a/admin/language/en-GB/en-GB.com_mediacleaner.ini b/admin/language/en-GB/en-GB.com_mediacleaner.ini
+index 2e78717..5782460 100644
+--- a/admin/language/en-GB/en-GB.com_mediacleaner.ini
++++ b/admin/language/en-GB/en-GB.com_mediacleaner.ini
+@@ -192,6 +192,10 @@ COM_MEDIACLEANER_SCAN_RETRYING="(the server did not answer in time, retrying wit
+ COM_MEDIACLEANER_SCAN_FAILED="The scan did not finish."
+ COM_MEDIACLEANER_SCAN_RESUME="Continue"
+ COM_MEDIACLEANER_SCAN_NO_RESPONSE="(no response from the server)"
++COM_MEDIACLEANER_SCAN_SESSION_EXPIRED="The scan stopped: your login session has expired. Log in again and then start the scan again."
++COM_MEDIACLEANER_SCAN_SESSION_STALE="The scan stopped: this page belongs to an earlier login session (for example because you logged in again in another tab). Reload the page and then start the scan again."
++COM_MEDIACLEANER_SCAN_LOGIN_AGAIN="Log in again"
++COM_MEDIACLEANER_SCAN_RELOAD_PAGE="Reload page"
+ COM_MEDIACLEANER_SCAN_STATE_LOST="This scan's intermediate results are no longer available (expired, or a new scan was started in the meantime). Please start the scan again."
+ COM_MEDIACLEANER_SCAN_NO_WORKDIR="No writable folder found for the scan's intermediate results. Check that Joomla's tmp folder (System → Global Configuration → Server) exists and is writable."
+ COM_MEDIACLEANER_SCAN_WRITE_FAILED="The scan's intermediate results could not be written to %s. Check that this folder is writable and that there is enough disk space."
+diff --git a/admin/language/nl-NL/nl-NL.com_mediacleaner.ini b/admin/language/nl-NL/nl-NL.com_mediacleaner.ini
+index 6ec2398..43293f7 100644
+--- a/admin/language/nl-NL/nl-NL.com_mediacleaner.ini
++++ b/admin/language/nl-NL/nl-NL.com_mediacleaner.ini
+@@ -192,6 +192,10 @@ COM_MEDIACLEANER_SCAN_RETRYING="(server reageerde niet op tijd, nieuwe poging me
+ COM_MEDIACLEANER_SCAN_FAILED="De scan is niet afgerond."
+ COM_MEDIACLEANER_SCAN_RESUME="Verder gaan"
+ COM_MEDIACLEANER_SCAN_NO_RESPONSE="(geen antwoord van de server)"
++COM_MEDIACLEANER_SCAN_SESSION_EXPIRED="De scan is gestopt: je inlogsessie is verlopen. Log opnieuw in en start daarna de scan opnieuw."
++COM_MEDIACLEANER_SCAN_SESSION_STALE="De scan is gestopt: deze pagina hoort bij een eerdere inlogsessie (bijvoorbeeld omdat je in een ander tabblad opnieuw bent ingelogd). Laad de pagina opnieuw en start daarna de scan opnieuw."
++COM_MEDIACLEANER_SCAN_LOGIN_AGAIN="Opnieuw inloggen"
++COM_MEDIACLEANER_SCAN_RELOAD_PAGE="Pagina opnieuw laden"
+ COM_MEDIACLEANER_SCAN_STATE_LOST="De tussenresultaten van deze scan zijn niet meer beschikbaar (verlopen, of er is intussen een nieuwe scan gestart). Start de scan opnieuw."
+ COM_MEDIACLEANER_SCAN_NO_WORKDIR="Geen schrijfbare map gevonden voor de tussenresultaten van de scan. Controleer of de tmp-map van Joomla (Systeem → Algemene instellingen → Server) bestaat en schrijfbaar is."
+ COM_MEDIACLEANER_SCAN_WRITE_FAILED="De tussenresultaten van de scan konden niet worden weggeschreven naar %s. Controleer of die map schrijfbaar is en of er voldoende schijfruimte is."
+diff --git a/admin/src/Controller/FilesController.php b/admin/src/Controller/FilesController.php
+index 951ad3a..ea6c7d9 100644
+--- a/admin/src/Controller/FilesController.php
++++ b/admin/src/Controller/FilesController.php
+@@ -73,25 +73,30 @@ class FilesController extends BaseController
+ 
+         try {
+             if (!Session::checkToken('post')) {
+-                throw new \RuntimeException(Text::_('JINVALID_TOKEN'), 403);
+-            }
+-
+-            /** @var \Joomla\Component\Mediacleaner\Administrator\Model\FilesModel $model */
+-            $model   = $this->getModel('Files');
+-            $payload = $model->rescanStep($this->input->getCmd('scan_id', ''), $this->input->getInt('budget', 8));
+-
+-            if (!empty($payload['done'])) {
+-                // The page reloads itself once it sees "done"; this is
+-                // the usual "Scan voltooid" notice waiting for it there.
+-                $app->enqueueMessage(
+-                    Text::sprintf(
+-                        'COM_MEDIACLEANER_RESCAN_DONE',
+-                        $payload['count'],
+-                        number_format($payload['sizeKB'], 1, ',', '.')
+-                    )
+-                );
+-
+-                $app->getSession()->set('application.queue', $app->getMessageQueue());
++                // The page's form token belongs to an earlier session
++                // (e.g. logged in again in another tab). "Verder gaan"
++                // would be refused again and again - tell the page to
++                // offer a reload instead (see the scan script in
++                // tmpl/files/default.php).
++                $payload = ['error' => Text::_('JINVALID_TOKEN'), 'reload' => true];
++            } else {
++                /** @var \Joomla\Component\Mediacleaner\Administrator\Model\FilesModel $model */
++                $model   = $this->getModel('Files');
++                $payload = $model->rescanStep($this->input->getCmd('scan_id', ''), $this->input->getInt('budget', 8));
++
++                if (!empty($payload['done'])) {
++                    // The page reloads itself once it sees "done"; this is
++                    // the usual "Scan voltooid" notice waiting for it there.
++                    $app->enqueueMessage(
++                        Text::sprintf(
++                            'COM_MEDIACLEANER_RESCAN_DONE',
++                            $payload['count'],
++                            number_format($payload['sizeKB'], 1, ',', '.')
++                        )
++                    );
++
++                    $app->getSession()->set('application.queue', $app->getMessageQueue());
++                }
+             }
+         } catch (\Throwable $e) {
+             $payload = ['error' => $e->getMessage()];
+diff --git a/admin/src/View/Files/HtmlView.php b/admin/src/View/Files/HtmlView.php
+index 26438aa..f29f4fd 100644
+--- a/admin/src/View/Files/HtmlView.php
++++ b/admin/src/View/Files/HtmlView.php
+@@ -456,6 +456,12 @@ class HtmlView extends BaseHtmlView
+         // own display().
+         HTMLHelper::_('stylesheet', 'com_mediacleaner/admin.css', ['version' => 'auto', 'relative' => true]);
+ 
++        // Keeps the backend login session alive for as long as this page
++        // is open (Joomla core's own "keepalive" script, the same one its
++        // article editor uses), so a scan started after the page has been
++        // left open for a while is not answered with the login screen.
++        $app->getDocument()->getWebAssetManager()->useScript('keepalive');
++
+         $this->addToolbar();
+ 
+         parent::display($tpl);
+diff --git a/admin/tmpl/files/default.php b/admin/tmpl/files/default.php
+index 26691c3..6797fa4 100644
+--- a/admin/tmpl/files/default.php
++++ b/admin/tmpl/files/default.php
+@@ -736,6 +736,10 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
+             'failed'   => Text::_('COM_MEDIACLEANER_SCAN_FAILED'),
+             'resume'   => Text::_('COM_MEDIACLEANER_SCAN_RESUME'),
+             'network'  => Text::_('COM_MEDIACLEANER_SCAN_NO_RESPONSE'),
++            'expired'  => Text::_('COM_MEDIACLEANER_SCAN_SESSION_EXPIRED'),
++            'stale'    => Text::_('COM_MEDIACLEANER_SCAN_SESSION_STALE'),
++            'login'    => Text::_('COM_MEDIACLEANER_SCAN_LOGIN_AGAIN'),
++            'reload'   => Text::_('COM_MEDIACLEANER_SCAN_RELOAD_PAGE'),
+         ]); ?>;
+ 
+         var container = document.querySelector('.com-mediacleaner-files');
+@@ -754,6 +758,12 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
+         var busy     = 0;
+         var doneUrl  = '';
+ 
++        // Set when the scan stopped because the login session is gone
++        // (or no longer matches this page): the button below the bar
++        // then reloads the page instead of continuing the scan, since
++        // every further request would be refused the same way.
++        var needsReload = false;
++
+         function showOverlay() {
+             if (!overlay) {
+                 overlay = document.createElement('div');
+@@ -779,6 +789,15 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
+                         return;
+                     }
+ 
++                    if (needsReload) {
++                        // Without a valid session Joomla answers this
++                        // URL with its own login screen. Reloading also
++                        // fetches a fresh form token for the next scan.
++                        window.location.href = doneUrl || window.location.href;
++
++                        return;
++                    }
++
+                     running  = true;
+                     failures = 0;
+                     busy     = 0;
+@@ -799,6 +818,8 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
+ 
+             overlay.classList.remove('mc-rescan-failed');
+             resume.hidden = true;
++            resume.textContent = text.resume;
++            needsReload = false;
+             fill.style.width = '1%';
+             label.textContent = text.starting;
+             lastLabel = text.starting;
+@@ -818,6 +839,42 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
+             resume.hidden = false;
+         }
+ 
++        // The scan stopped because of the login session, not the scan:
++        // say so plainly and turn the button into "log in again" /
++        // "reload the page" instead of "Verder gaan".
++        function showSessionProblem(message, buttonText) {
++            running     = false;
++            needsReload = true;
++            scanId      = '';
++
++            overlay.classList.add('mc-rescan-failed');
++            label.textContent  = message;
++            resume.textContent = buttonText;
++            resume.hidden      = false;
++        }
++
++        // When the Joomla backend session has expired, Joomla does not
++        // send an error for an AJAX request: it answers with its complete
++        // login page and HTTP 200. Recognised by the login form's own
++        // fields (com_login, password field "passwd") - only ever checked
++        // on a response that already failed to be the expected JSON.
++        function isLoginPage(result) {
++            if (!result) {
++                return false;
++            }
++
++            if (result.url && /[?&]option=com_login\b/i.test(result.url)) {
++                return true;
++            }
++
++            var body = String(result.text || '');
++
++            return /name=["']?passwd["']?/i.test(body)
++                || /name=["']?option["']?\s+value=["']?com_login["']?/i.test(body)
++                || /value=["']?com_login["']?\s+name=["']?option["']?/i.test(body)
++                || /id=["']?form-login["']?/i.test(body);
++        }
++
+         function describe(result) {
+             if (!result || typeof result.status === 'undefined') {
+                 return text.network;
+@@ -851,7 +908,7 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
+                 headers: {'X-Requested-With': 'XMLHttpRequest'}
+             }).then(function (response) {
+                 return response.text().then(function (responseText) {
+-                    return {status: response.status, text: responseText};
++                    return {status: response.status, text: responseText, url: response.url || ''};
+                 });
+             }).then(function (result) {
+                 var data = null;
+@@ -862,6 +919,23 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
+                     data = null;
+                 }
+ 
++                if (!data && isLoginPage(result)) {
++                    // Not a hiccup a retry would fix - stop right away
++                    // instead of first retrying four times.
++                    showSessionProblem(text.expired, text.login);
++
++                    return;
++                }
++
++                if (data && data.error && data.reload) {
++                    // The session exists but no longer matches this page
++                    // (form token refused) - e.g. logged in again in
++                    // another tab. Only a reload gives a valid token.
++                    showSessionProblem(text.stale, text.reload);
++
++                    return;
++                }
++
+                 if (data && data.error) {
+                     // The server itself explained what is wrong (no
+                     // permission, work folder not writable, ...) -
