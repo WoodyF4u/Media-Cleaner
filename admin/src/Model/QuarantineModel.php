@@ -10,8 +10,8 @@ namespace Joomla\Component\Mediacleaner\Administrator\Model;
 defined('_JEXEC') or die;
 
 use Joomla\CMS\Factory;
-use Joomla\CMS\Filesystem\Folder;
 use Joomla\CMS\Language\Text;
+use Joomla\Component\Mediacleaner\Administrator\Service\StorageLocator;
 use Joomla\CMS\MVC\Model\BaseDatabaseModel;
 
 /**
@@ -89,7 +89,7 @@ class QuarantineModel extends BaseDatabaseModel
                 continue;
             }
 
-            if (!is_dir($destDir) && !Folder::create($destDir)) {
+            if (!is_dir($destDir) && !@mkdir($destDir, 0755, true) && !is_dir($destDir)) {
                 $errors++;
                 continue;
             }
@@ -308,7 +308,18 @@ class QuarantineModel extends BaseDatabaseModel
      */
     protected function getQuarantineRoot()
     {
-        return JPATH_ROOT . '/administrator/components/com_mediacleaner/quarantine';
+        // v2.9.0: shared storage root, see StorageLocator.
+        static $root = null;
+
+        if ($root === null) {
+            try {
+                $root = (new StorageLocator())->getQuarantineDir();
+            } catch (\RuntimeException $e) {
+                $root = JPATH_ROOT . '/' . StorageLocator::LEGACY_QUARANTINE;
+            }
+        }
+
+        return $root;
     }
 
     /**

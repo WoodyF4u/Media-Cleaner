@@ -10,7 +10,6 @@ namespace Joomla\Component\Mediacleaner\Administrator\Service;
 defined('_JEXEC') or die;
 
 use Joomla\CMS\Factory;
-use Joomla\CMS\Filesystem\Folder;
 
 /**
  * Handles moving files to/from the protected quarantine folder, and the
@@ -18,7 +17,7 @@ use Joomla\CMS\Filesystem\Folder;
  *
  * v1.37.0: extracted out of FilesModel.php (which had grown past 2700
  * lines) as part of a deliberate split into single-purpose classes -
- * Scanner, QuarantineManager, WebpConverter - each independently
+ * Scanner, QuarantineManager, WebpConverter (until v2.8.3) - each independently
  * reviewable, so a permission or safety check can't as easily go missing
  * in a future change without standing out. Structural-only change: no
  * behaviour was altered, every method body was moved verbatim.
@@ -100,7 +99,11 @@ class QuarantineManager
             return ['moved' => 0, 'errors' => count($ids)];
         }
 
-        $quarantineRoot = $this->prepareQuarantineFolder();
+        try {
+            $quarantineRoot = $this->prepareQuarantineFolder();
+        } catch (\RuntimeException $e) {
+            return ['moved' => 0, 'errors' => count($ids)];
+        }
         $now            = Factory::getDate()->toSql();
         $userId         = (int) $app->getIdentity()->id;
 
@@ -122,7 +125,7 @@ class QuarantineManager
             $token  = bin2hex(random_bytes(8));
             $folder = $quarantineRoot . '/' . $token;
 
-            if (!is_dir($folder) && !Folder::create($folder)) {
+            if (!is_dir($folder) && !@mkdir($folder, 0755, true) && !is_dir($folder)) {
                 $errors++;
                 continue;
             }
@@ -178,50 +181,10 @@ class QuarantineManager
      */
     protected function prepareQuarantineFolder()
     {
-        $path = JPATH_ROOT . '/administrator/components/com_mediacleaner/quarantine';
-
-        if (!is_dir($path)) {
-            Folder::create($path);
-        }
-
-        $htaccess = $path . '/.htaccess';
-
-        if (!is_file($htaccess)) {
-            file_put_contents(
-                $htaccess,
-                "# Media Cleaner quarantine - deny all direct access.\n"
-                . "<IfModule mod_authz_core.c>\n"
-                . "    Require all denied\n"
-                . "</IfModule>\n"
-                . "<IfModule !mod_authz_core.c>\n"
-                . "    Order allow,deny\n"
-                . "    Deny from all\n"
-                . "</IfModule>\n"
-            );
-        }
-
-        $webConfig = $path . '/web.config';
-
-        if (!is_file($webConfig)) {
-            file_put_contents(
-                $webConfig,
-                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                . "<configuration>\n"
-                . "    <system.webServer>\n"
-                . "        <authorization>\n"
-                . "            <deny users=\"*\" />\n"
-                . "        </authorization>\n"
-                . "    </system.webServer>\n"
-                . "</configuration>\n"
-            );
-        }
-
-        $indexHtml = $path . '/index.html';
-
-        if (!is_file($indexHtml)) {
-            file_put_contents($indexHtml, '<!DOCTYPE html><title></title>');
-        }
-
-        return $path;
+        // v2.9.0: the quarantine moved out of this component's own folder
+        // (which Joomla deletes on uninstall) into the shared storage
+        // root - see StorageLocator, which also creates the protection
+        // files and moves anything left in the old location.
+        return (new StorageLocator())->getQuarantineDir();
     }
 }

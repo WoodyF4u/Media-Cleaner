@@ -26,7 +26,7 @@ use FilesystemIterator;
  *
  * v1.37.0: extracted out of FilesModel.php (which had grown past 2700
  * lines) as part of a deliberate split into single-purpose classes -
- * Scanner, QuarantineManager, WebpConverter - each independently
+ * Scanner, QuarantineManager, WebpConverter (until v2.8.3) - each independently
  * reviewable. Structural-only change: no behaviour was altered, every
  * method body was moved verbatim; only `$this->getDatabase()` became
  * `$this->db` (constructor-injected instead of inherited from Joomla's
@@ -90,6 +90,11 @@ class Scanner
      * @var \Joomla\Database\DatabaseDriver
      */
     protected $db;
+
+    /**
+     * @var string[]|null  See isStorageRoot().
+     */
+    protected $storageRoots = null;
 
     /**
      * Table name patterns (glob syntax with * wildcards, matched
@@ -3755,6 +3760,28 @@ class Scanner
     }
 
     /**
+     * v2.9.0: whether $absolutePath is Media Cleaner's own storage root
+     * (quarantine + originals, see StorageLocator) - when that sits in
+     * the Joomla root it must never show up in its own overview.
+     *
+     * @param   string  $absolutePath
+     *
+     * @return  boolean
+     */
+    protected function isStorageRoot($absolutePath)
+    {
+        if ($this->storageRoots === null) {
+            try {
+                $this->storageRoots = StorageLocator::getKnownRoots();
+            } catch (\Throwable $e) {
+                $this->storageRoots = [];
+            }
+        }
+
+        return \in_array(rtrim(str_replace('\\', '/', $absolutePath), '/'), $this->storageRoots, true);
+    }
+
+    /**
      * Walk the Joomla installation and report every media file (see
      * $extensions) to $onFile, folder by folder.
      *
@@ -3829,7 +3856,7 @@ class Scanner
                 $full = $absDir . '/' . $name;
 
                 if (is_dir($full)) {
-                    if (!\in_array(strtolower($name), $this->excludeDirs, true) && !is_link($full)) {
+                    if (!\in_array(strtolower($name), $this->excludeDirs, true) && !is_link($full) && !$this->isStorageRoot($full)) {
                         $walk['cur']['subdirs'][] = $name;
                     }
 

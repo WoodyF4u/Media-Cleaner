@@ -73,25 +73,30 @@ class FilesController extends BaseController
 
         try {
             if (!Session::checkToken('post')) {
-                throw new \RuntimeException(Text::_('JINVALID_TOKEN'), 403);
-            }
+                // The page's form token belongs to an earlier session
+                // (e.g. logged in again in another tab). "Verder gaan"
+                // would be refused again and again - tell the page to
+                // offer a reload instead (see the scan script in
+                // tmpl/files/default.php).
+                $payload = ['error' => Text::_('JINVALID_TOKEN'), 'reload' => true];
+            } else {
+                /** @var \Joomla\Component\Mediacleaner\Administrator\Model\FilesModel $model */
+                $model   = $this->getModel('Files');
+                $payload = $model->rescanStep($this->input->getCmd('scan_id', ''), $this->input->getInt('budget', 8));
 
-            /** @var \Joomla\Component\Mediacleaner\Administrator\Model\FilesModel $model */
-            $model   = $this->getModel('Files');
-            $payload = $model->rescanStep($this->input->getCmd('scan_id', ''), $this->input->getInt('budget', 8));
+                if (!empty($payload['done'])) {
+                    // The page reloads itself once it sees "done"; this is
+                    // the usual "Scan voltooid" notice waiting for it there.
+                    $app->enqueueMessage(
+                        Text::sprintf(
+                            'COM_MEDIACLEANER_RESCAN_DONE',
+                            $payload['count'],
+                            number_format($payload['sizeKB'], 1, ',', '.')
+                        )
+                    );
 
-            if (!empty($payload['done'])) {
-                // The page reloads itself once it sees "done"; this is
-                // the usual "Scan voltooid" notice waiting for it there.
-                $app->enqueueMessage(
-                    Text::sprintf(
-                        'COM_MEDIACLEANER_RESCAN_DONE',
-                        $payload['count'],
-                        number_format($payload['sizeKB'], 1, ',', '.')
-                    )
-                );
-
-                $app->getSession()->set('application.queue', $app->getMessageQueue());
+                    $app->getSession()->set('application.queue', $app->getMessageQueue());
+                }
             }
         } catch (\Throwable $e) {
             $payload = ['error' => $e->getMessage()];
@@ -301,73 +306,5 @@ class FilesController extends BaseController
         }
 
         $this->setRedirect(Route::_('index.php?option=com_mediacleaner&view=files&filter_linked=' . $filterLinked, false));
-    }
-
-    /**
-     * Convert a single file to a new `.webp` file placed alongside the
-     * original (nothing is overwritten or deleted). Only available from
-     * the "Gekoppelde media" view.
-     *
-     * @return  void
-     */
-    public function webp()
-    {
-        $this->checkToken();
-
-        $id = $this->input->getInt('id', 0);
-
-        /** @var \Joomla\Component\Mediacleaner\Administrator\Model\FilesModel $model */
-        $model = $this->getModel('Files');
-
-        try {
-            $result = $model->convertToWebp($id);
-
-            if (!empty($result['success'])) {
-                $this->setMessage(
-                    Text::sprintf(
-                        'COM_MEDIACLEANER_WEBP_DONE',
-                        $result['webp_name'],
-                        number_format($result['webp_size_kb'], 1, ',', '.'),
-                        number_format($result['original_kb'], 1, ',', '.')
-                    )
-                );
-            } else {
-                $this->setMessage($this->getWebpErrorMessage($result), 'warning');
-            }
-        } catch (\Exception $e) {
-            $this->setMessage($e->getMessage(), 'error');
-        }
-
-        $this->setRedirect(Route::_('index.php?option=com_mediacleaner&view=files&filter_linked=linked', false));
-    }
-
-    /**
-     * Translate a convertToWebp() failure result into a user-facing message.
-     *
-     * @param   array  $result
-     *
-     * @return  string
-     */
-    protected function getWebpErrorMessage(array $result)
-    {
-        $reason = $result['reason'] ?? 'generic';
-
-        if ($reason === 'exists') {
-            return Text::sprintf('COM_MEDIACLEANER_WEBP_ERROR_EXISTS', $result['webp_name'] ?? '');
-        }
-
-        $map = [
-            'unsupported_type' => 'COM_MEDIACLEANER_WEBP_ERROR_UNSUPPORTED_TYPE',
-            'missing'           => 'COM_MEDIACLEANER_WEBP_ERROR_MISSING',
-            'no_imagick'        => 'COM_MEDIACLEANER_WEBP_ERROR_NO_IMAGICK',
-            'no_gd'             => 'COM_MEDIACLEANER_WEBP_ERROR_NO_GD',
-            'read_failed'       => 'COM_MEDIACLEANER_WEBP_ERROR_READ_FAILED',
-            'write_failed'      => 'COM_MEDIACLEANER_WEBP_ERROR_WRITE_FAILED',
-            'not_found'         => 'COM_MEDIACLEANER_WEBP_ERROR_NOT_FOUND',
-            'invalid'           => 'COM_MEDIACLEANER_WEBP_ERROR_NOT_FOUND',
-            'exception'         => 'COM_MEDIACLEANER_WEBP_ERROR_GENERIC',
-        ];
-
-        return Text::_($map[$reason] ?? 'COM_MEDIACLEANER_WEBP_ERROR_GENERIC');
     }
 }

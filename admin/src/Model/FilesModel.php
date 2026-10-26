@@ -15,7 +15,6 @@ use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\Model\BaseDatabaseModel;
 use Joomla\Component\Mediacleaner\Administrator\Service\QuarantineManager;
 use Joomla\Component\Mediacleaner\Administrator\Service\ScanJob;
-use Joomla\Component\Mediacleaner\Administrator\Service\WebpConverter;
 
 /**
  * Model backing the file overview. The actual filesystem scan only runs
@@ -26,7 +25,8 @@ use Joomla\Component\Mediacleaner\Administrator\Service\WebpConverter;
  * v1.37.0: this model used to also contain the filesystem-scan/reference-
  * linking engine, the quarantine-move logic, and the WebP conversion logic
  * directly - all now split out into their own single-purpose classes
- * (Scanner, QuarantineManager, WebpConverter - see admin/src/Service/) once
+ * (Scanner, QuarantineManager - see admin/src/Service/; WebP conversion
+ * moved to the Verkleinen tab in v2.9.0, see Compressor) once
  * this file had grown past 2700 lines. What stays here is genuine Model
  * responsibility: reading/filtering the cached list (getItems() and
  * friends), the "ignored" toggle, the Options-screen-driven Unlinked-view
@@ -45,11 +45,6 @@ class FilesModel extends BaseDatabaseModel
      * @var QuarantineManager|null
      */
     protected $quarantineManager;
-
-    /**
-     * @var WebpConverter|null
-     */
-    protected $webpConverter;
 
     /**
      * @return  ScanJob
@@ -73,18 +68,6 @@ class FilesModel extends BaseDatabaseModel
         }
 
         return $this->quarantineManager;
-    }
-
-    /**
-     * @return  WebpConverter
-     */
-    protected function getWebpConverter()
-    {
-        if ($this->webpConverter === null) {
-            $this->webpConverter = new WebpConverter($this->getDatabase());
-        }
-
-        return $this->webpConverter;
     }
 
     /**
@@ -1122,29 +1105,5 @@ class FilesModel extends BaseDatabaseModel
     public function lastScanWasInterrupted()
     {
         return $this->getScanner()->hasInterruptedPersist();
-    }
-
-    /**
-     * Convert a single file (by its `#__mediacleaner_files` id) to a new
-     * `.webp` file placed alongside the original, using a fixed quality of
-     * 80. The original file is never touched, overwritten or deleted -
-     * this only ever adds a new file. jpg/jpeg/png go through the GD
-     * extension; tif/tiff needs the Imagick PHP extension.
-     *
-     * @param   integer  $id  Id from `#__mediacleaner_files`.
-     *
-     * @return  array  ['success' => bool, ...] - see inline reason codes below.
-     *
-     * @throws  \Exception  When the current user is not allowed to manage this component.
-     */
-    public function convertToWebp($id)
-    {
-        $app = Factory::getApplication();
-
-        if (!$app->getIdentity()->authorise('core.manage', 'com_mediacleaner')) {
-            throw new \Exception(Text::_('JERROR_ALERTNOAUTHOR'), 403);
-        }
-
-        return $this->getWebpConverter()->convert($id);
     }
 }

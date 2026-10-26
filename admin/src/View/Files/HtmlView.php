@@ -17,6 +17,7 @@ use Joomla\CMS\Pagination\Pagination;
 use Joomla\CMS\Router\Route;
 use Joomla\CMS\Toolbar\ToolbarHelper;
 use Joomla\CMS\Uri\Uri;
+use Joomla\Component\Mediacleaner\Administrator\Service\StorageLocator;
 
 /**
  * View class for the file overview.
@@ -455,6 +456,24 @@ class HtmlView extends BaseHtmlView
         // and Help views, which each load the same stylesheet from their
         // own display().
         HTMLHelper::_('stylesheet', 'com_mediacleaner/admin.css', ['version' => 'auto', 'relative' => true]);
+
+        // v2.9.0: the quarantine moved to the shared storage folder (see
+        // StorageLocator). Right after an update, move what is still in
+        // the old place - otherwise that happens on the first delete or
+        // visit to "Tijdelijk verwijderd".
+        if (is_dir(JPATH_ROOT . '/' . StorageLocator::LEGACY_QUARANTINE)) {
+            try {
+                (new StorageLocator())->getQuarantineDir();
+            } catch (\RuntimeException $e) {
+                // No storage folder possible: the warning shows on the Verkleinen tab.
+            }
+        }
+
+        // Keeps the backend login session alive for as long as this page
+        // is open (Joomla core's own "keepalive" script, the same one its
+        // article editor uses), so a scan started after the page has been
+        // left open for a while is not answered with the login screen.
+        $app->getDocument()->getWebAssetManager()->useScript('keepalive');
 
         $this->addToolbar();
 
