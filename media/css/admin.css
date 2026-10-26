@@ -574,6 +574,144 @@ input[type="checkbox"].form-check-input:checked::after {
     pointer-events: none;
 }
 
+/* === Tabs: Opruimen / Verkleinen (v2.9.0) ================================ */
+
+.mc-tabs {
+    margin: 0 0 16px;
+}
+.mc-tabs .nav-link {
+    font-weight: 600;
+}
+
+/* === Verkleinen tab and Dubbele kopieen (v2.9.0) ========================= */
+
+.mc-compress-box {
+    margin: 0 0 20px;
+    padding: 14px 16px;
+    border: 1px solid var(--bs-border-color, #ddd);
+    border-radius: 6px;
+    background: var(--bs-body-bg, #fff);
+}
+.mc-compress-heading {
+    margin: 0 0 10px;
+    font-size: 16px;
+    font-weight: 700;
+}
+.mc-compress-choices {
+    max-width: 960px;
+    table-layout: fixed;
+}
+.mc-compress-col-kind {
+    width: 22%;
+}
+.mc-compress-col-found {
+    width: 24%;
+}
+.mc-compress-col-do {
+    width: 54%;
+}
+.mc-compress-choices th[scope="row"],
+.mc-compress-choices td {
+    vertical-align: middle;
+    padding-top: 12px;
+    padding-bottom: 12px;
+}
+.mc-compress-choices th[scope="row"] {
+    font-weight: 400;
+}
+.mc-compress-kind,
+.mc-compress-found-count {
+    display: block;
+    font-weight: 700;
+}
+.mc-compress-sub {
+    display: block;
+    font-size: 0.875em;
+    color: var(--bs-secondary-color, #6c757d);
+}
+.mc-compress-found {
+    display: block;
+    white-space: nowrap;
+}
+.mc-compress-found[hidden] {
+    display: none;
+}
+.mc-compress-sub-choice + .mc-compress-sub-choice {
+    margin-top: 10px;
+}
+.mc-compress-sub-label {
+    display: block;
+    margin-bottom: 2px;
+    font-size: 0.875em;
+    color: var(--bs-secondary-color, #6c757d);
+}
+.mc-compress-choices select {
+    width: 100%;
+    max-width: 340px;
+}
+@media (max-width: 767px) {
+    .mc-compress-choices {
+        table-layout: auto;
+    }
+}
+.mc-compress-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 24px;
+    margin: 4px 0 10px;
+}
+.mc-compress-options input {
+    margin-right: 4px;
+}
+.mc-compress-notes {
+    margin: 0 0 14px;
+    padding-left: 18px;
+    font-size: 13px;
+    color: var(--bs-secondary-color, #555);
+}
+.mc-compress-notes li {
+    margin: 0 0 3px;
+}
+.mc-compress-hint {
+    font-size: 13px;
+    color: var(--bs-secondary-color, #555);
+}
+.mc-compress-zip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 6px;
+}
+.mc-inline-form {
+    display: inline-block;
+    margin: 0 6px 6px 0;
+}
+.mc-compress-path {
+    word-break: break-all;
+}
+.mc-compress-arrow {
+    color: var(--bs-success-text-emphasis, #1e8449);
+}
+.mc-compress-skipped {
+    color: var(--bs-warning-text-emphasis, #b35900);
+    font-weight: 600;
+}
+.mc-compress-status-done,
+.mc-compress-status-final {
+    color: var(--bs-success-text-emphasis, #1e8449);
+    font-weight: 600;
+}
+.mc-compress-status-restored {
+    color: var(--bs-secondary-color, #555);
+    font-weight: 600;
+}
+.mc-nowrap {
+    white-space: nowrap;
+}
+.com-mediacleaner-compress .mc-filters {
+    margin: 0 0 10px;
+}
+
 /* === Help page ============================================================= */
 
 .mc-help-intro {
@@ -691,4 +829,14 @@ input[type="checkbox"].form-check-input:checked::after {
 [data-bs-theme="dark"] input[type="checkbox"].form-check-input:checked {
     background-color: #3a5068;
     border-color: #3a5068;
+}
+
+/* Extra line under the progress bar (e.g. "a round was already under way"). */
+#mc-rescan-overlay {
+    flex-wrap: wrap;
+}
+.mc-rescan-note {
+    flex: 1 1 100%;
+    font-size: 0.875em;
+    color: var(--bs-secondary-color, #6c757d);
 }
