@@ -119,15 +119,45 @@ de tabel, voor één of meer geselecteerde niet-gekoppelde bestanden):
 - **Verwijderen (tijdelijk)** — verplaatst het bestand naar een
   beveiligde quarantainemap, niet bereikbaar vanaf de live website, maar
   nog niet definitief weg.
-- **Comprimeer naar WebP** (alleen gekoppelde bestanden) — maakt een
-  nieuwe, gecomprimeerde WebP-kopie naast de originele afbeelding; er
-  wordt niets overschreven. De verwijzing moet je zelf nog handmatig
-  aanpassen naar het nieuwe bestand.
 
 **Quarantaine** ("Toon verwijderde media"): zet een bestand terug naar de
 oorspronkelijke locatie, of verwijder het definitief - een echte,
 onomkeerbare verwijdering, bewust als aparte, tweede stap gehouden ten
 opzichte van de tijdelijke verwijdering hierboven.
+
+**Dubbele kopieën** (link op het tabblad Opruimen): zoekt niet-gekoppelde
+bestanden die byte voor byte gelijk zijn aan een gekoppeld bestand, zodat
+je die kopieën in één keer naar Tijdelijk verwijderd kunt verplaatsen.
+
+## Het tabblad Verkleinen (vanaf 2.9.0)
+
+Maakt grote mediabestanden kleiner, helemaal op de server, zonder dat je
+zelf iets in de database hoeft te doen:
+
+- **JPG** — verkleinen onder dezelfde naam, of omzetten naar WebP.
+- **PNG zonder transparantie** — omzetten naar JPG of naar WebP.
+- **PNG met transparantie** — overslaan, of omzetten naar WebP (de
+  transparantie blijft behouden).
+- **PDF** — de afbeeldingen in de PDF verkleinen: met Ghostscript als de
+  server dat heeft, anders met een ingebouwde methode. Beveiligde PDF's
+  worden nooit aangeraakt.
+
+Krijgt een bestand een nieuwe naam (PNG → JPG, → WebP), dan past Media
+Cleaner zelf alle verwijzingen in de database aan - ook in eigen velden
+en in geserialiseerde instellingen van extensies. Een bestand dat in de
+code van een template of extensie genoemd wordt, houdt zijn naam. Alleen
+bestanden in de eigen mappen van de site worden verwerkt, nooit
+bestanden van extensies of templates.
+
+Van elk bestand wordt het origineel bewaard; **Herstellen** zet bestand
+én verwijzingen terug. De originelen kun je als ZIP downloaden en daarna
+definitief verwijderen om de ruimte echt vrij te maken.
+
+**Bewaarmap:** de originelen en de tijdelijk verwijderde bestanden staan
+bij voorkeur buiten de webroot (`mediacleaner-<site>-<code>` naast de
+webroot), anders in `mediacleaner/` in de Joomla-hoofdmap, afgeschermd
+met `.htaccess`, `web.config` en `index.html` met vaste inhoud. Een eigen
+map stel je in bij Opties, tabblad Verkleinen.
 
 ## Vereisten
 

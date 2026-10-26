@@ -2,7 +2,7 @@
 <updates>
     <update>
         <name>Media Cleaner</name>
-        <description>Beheer alle mediabestanden overzichtelijk: vind ongebruikte bestanden, bekijk waar ze worden gebruikt, verwijder ze veilig en optimaliseer afbeeldingen naar WebP. --- Manage all media files efficiently: find unused files, see where they are used, delete them safely, and optimize images to WebP. --- Made by Wouter (WoodyF4u). Questions, bug reports or feature requests? Please open an issue on GitHub: https://github.com/WoodyF4u/Media-Cleaner/issues</description>
+        <description>Beheer alle mediabestanden overzichtelijk: vind ongebruikte bestanden, bekijk waar ze worden gebruikt, verwijder ze veilig, en maak grote JPG's, PNG's en PDF's kleiner of zet ze om naar WebP. --- Manage all media files efficiently: find unused files, see where they are used, delete them safely, and make large JPGs, PNGs and PDFs smaller or convert them to WebP. --- Made by Wouter (WoodyF4u). Questions, bug reports or feature requests? Please open an issue on GitHub: https://github.com/WoodyF4u/Media-Cleaner/issues</description>
         <element>com_mediacleaner</element>
         <type>component</type>
         <version>2.8.3</version>

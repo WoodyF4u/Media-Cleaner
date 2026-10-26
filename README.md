@@ -107,13 +107,43 @@ table, for one or more selected unlinked files):
 - **Delete (temporary)** — moves the file to a protected quarantine
   folder, unreachable from the live website but not yet permanently
   gone.
-- **Compress to WebP** (linked files only) — creates a new, compressed
-  WebP copy alongside the original image; nothing is overwritten. You
-  still need to manually update the reference to point at the new file.
 
 **Quarantine** ("Show deleted media"): restore a file to its original
 location, or delete it permanently — a real, unrecoverable delete, kept
 as a deliberate second, separate step from the temporary removal above.
+
+**Duplicate copies** (link on the Clean up tab): finds unlinked files that
+are byte-for-byte identical to a linked file, so those copies can be moved
+to the quarantine in one go.
+
+## The Compress tab (from 2.9.0)
+
+Makes large media files smaller, entirely on the server, without anyone
+having to touch the database:
+
+- **JPG** — make smaller under the same name, or convert to WebP.
+- **PNG without transparency** — convert to JPG or to WebP.
+- **PNG with transparency** — skip, or convert to WebP (transparency is
+  kept).
+- **PDF** — make the images inside smaller: with Ghostscript when the
+  server has it, otherwise with a built-in method. Protected PDFs are
+  never touched.
+
+When a file gets a new name (PNG → JPG, → WebP), Media Cleaner updates
+every reference in the database itself - including custom fields and
+serialized extension settings. A file named in the code of a template or
+extension keeps its name. Only files in the site's own folders are
+handled, never files belonging to extensions or templates.
+
+Every original is kept; **Restore** puts the file and its references
+back. Originals can be downloaded as ZIP and then deleted for good to
+really free the space.
+
+**Storage folder:** originals and quarantined files are kept outside the
+web root when possible (`mediacleaner-<site>-<code>` next to it),
+otherwise in `mediacleaner/` in the Joomla root, shielded by
+`.htaccess`, `web.config` and `index.html` with fixed contents. A folder
+of your own can be set in Options, Compress tab.
 
 ## Requirements
 

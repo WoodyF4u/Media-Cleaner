@@ -3,8 +3,109 @@
 Elke regel is ook een test die je na installatie kunt aflopen om te
 controleren of een functie daadwerkelijk is meegenomen.
 
+## 2.9.0
+
+- **Twee tabbladen: Opruimen en Verkleinen.** Bovenaan Media Cleaner staan
+  nu twee tabbladen; ze staan ook als submenu onder Componenten → Media
+  Cleaner. Opruimen is het bekende overzicht (gekoppeld, niet-gekoppeld,
+  genegeerd, tijdelijk verwijderd).
+- **Nieuw tabblad Verkleinen.** Grote mediabestanden kleiner maken, helemaal
+  op de server. Per soort kies je wat er gebeurt:
+  - JPG (vanaf 1024 KB): verkleinen onder dezelfde naam (standaard), of
+    omzetten naar WebP.
+  - PNG zonder transparantie (vanaf 500 KB): omzetten naar JPG (standaard)
+    of naar WebP.
+  - PNG met transparantie: overslaan (standaard) of omzetten naar WebP; de
+    transparantie blijft behouden.
+  - PDF (vanaf 500 KB): de afbeeldingen erin verkleinen. Heeft de server
+    Ghostscript, dan wordt dat gebruikt; lukt dat niet of is het er niet,
+    dan de ingebouwde methode (alleen de afbeeldingen worden vervangen, de
+    rest van de PDF blijft gelijk). Beveiligde PDF's worden nooit
+    aangeraakt.
+  - Afbeeldingen worden verkleind tot maximaal 2400 pixels aan de langste
+    zijde; de draairichting van foto's (EXIF) wordt toegepast.
+  - Het werk gebeurt in korte stappen met een voortgangsbalk, net als de
+    scan. Loopt PHP vast op één bestand (geheugen), dan wordt dat bestand
+    overgeslagen met de reden erbij en gaat de rest gewoon door.
+  - Er loopt maar één ronde tegelijk. Wordt er gestart terwijl er al een
+    loopt (ander tabblad, andere beheerder), dan wordt die lopende ronde
+    afgemaakt, met een melding daarover onder de voortgangsbalk.
+  - Na "Start verkleinen" schuift de pagina naar boven, naar de
+    voortgangsbalk; die toont wat er gebeurt en hoe lang het nog ongeveer
+    duurt. Ook een foutmelding verschijnt daar, met een knop om verder te
+    gaan.
+- **Verwijzingen worden automatisch bijgewerkt, zonder SQL.** Krijgt een
+  bestand een nieuwe naam (PNG → JPG, → WebP), dan past Media Cleaner zelf
+  alle verwijzingen in de database aan: artikelen, modules, menu's,
+  eigen velden (`#__fields_values`), gebruikersprofielen en tabellen van
+  extensies. Ook URL-gecodeerde, HTML-gecodeerde en JSON-geschreven paden
+  (`images\/caf\u00e9.png`) en Joomla's mediaveld (`#joomlaImage://local-images/...`)
+  worden herkend. Geserialiseerde PHP-waarden krijgen de juiste lengtes,
+  zodat ze niet stukgaan als een naam langer wordt (.png → .webp).
+  - Niet aangepast: `media/images/foto.png`, `oud-images/foto.png` en
+    `foto.png.bak` - dat zijn andere bestanden.
+  - Een bestand dat in de code van een template of extensie genoemd wordt,
+    houdt zijn naam: een JPG wordt dan alleen verkleind, een PNG wordt
+    overgeslagen. Code wordt nooit aangepast.
+  - Pas als alle verwijzingen zijn bijgewerkt, gaat het origineel weg; tot
+    dat moment blijft de site gewoon werken.
+- **Alleen de eigen media van de site.** Bestanden in mappen van Joomla,
+  extensies en templates (`media/`, `templates/`, `components/`, ...) en in
+  systeemmappen (thumbs, assets, vendor, ...) worden nooit verkleind.
+  Standaard alleen gekoppelde bestanden; ongebruikte bestanden ruim je op.
+- **Originelen bewaard, alles te herstellen.** Elk origineel wordt bewaard.
+  Herstellen in het logboek zet het bestand én de verwijzingen in de
+  database terug. De originelen zijn als ZIP te downloaden (delen van
+  maximaal 150 MB) en daarna definitief te verwijderen om de ruimte echt
+  vrij te maken. Overgeslagen bestanden staan met hun reden in het logboek
+  en kunnen opnieuw geprobeerd worden.
+- **"Comprimeer naar WebP" is verhuisd** van het overzicht Gekoppelde media
+  naar het tabblad Verkleinen, waar de verwijzingen nu ook automatisch
+  worden bijgewerkt.
+- **Dubbele kopieën zoeken** (link op het tabblad Opruimen): vindt
+  niet-gekoppelde bestanden die byte voor byte gelijk zijn aan een
+  gekoppeld bestand. Die kopieën kunnen in één keer naar Tijdelijk
+  verwijderd; vlak daarvoor wordt nog eens gecontroleerd of ze echt
+  gelijk zijn.
+- **Nieuwe bewaarmap voor tijdelijk verwijderde bestanden en originelen.**
+  Bij voorkeur buiten de webroot (`mediacleaner-<site>-<code>` naast de
+  webroot): niet via de browser bereikbaar en niet in een back-up van de
+  site. Lukt dat niet, dan `mediacleaner/` in de Joomla-hoofdmap, afgeschermd
+  met `.htaccess`, `web.config` en `index.html` met vaste inhoud. Media
+  Cleaner controleert dan ook of de map echt niet via de browser op te
+  vragen is (bijvoorbeeld op Nginx) en waarschuwt als dat wel zo is.
+  - Een eigen map is in te stellen bij Opties, tabblad Verkleinen; de
+    inhoud verhuist dan mee.
+  - De bestaande quarantaine (`administrator/components/com_mediacleaner/quarantine`)
+    verhuist bij het eerste openen na de update vanzelf mee. Daardoor
+    gaat de inhoud ook niet meer verloren als Media Cleaner wordt
+    verwijderd of opnieuw geïnstalleerd.
+  - Is de database gekopieerd naar een andere site (Akeeba, testkopie),
+    dan gebruikt die kopie een eigen bewaarmap en niet die van de
+    oorspronkelijke site.
+- **Opties, tabblad Verkleinen:** drempels per soort, maximale afmeting,
+  JPG-, WebP- en PDF-kwaliteit, PDF-resolutie, Ghostscript aan/uit en de
+  bewaarmap.
+- Database: vier nieuwe tabellen (`#__mediacleaner_state`,
+  `#__mediacleaner_compress`, `#__mediacleaner_compress_refs`,
+  `#__mediacleaner_duplicates`), aangemaakt bij installeren en bijwerken.
+  Er wordt niets bestaands gewijzigd of verwijderd.
+
 ## 2.8.3
 
+- **Verlopen inlogsessie tijdens het scannen wordt netjes afgehandeld.**
+  - Zolang het Media Cleaner-scherm openstaat, houdt Joomla's eigen
+    keepalive de inlogsessie in leven (zoals bij het bewerken van een
+    artikel). Laat het scherm een uur openstaan en klik dan op "Scan
+    opnieuw uitvoeren": de scan start gewoon.
+  - Is de sessie toch verlopen (bijvoorbeeld na slaapstand), dan stopt de
+    scan direct met de melding "je inlogsessie is verlopen" en een knop
+    "Opnieuw inloggen", die het Joomla-inlogscherm toont. Voorheen kwam er
+    na vier nieuwe pogingen een lap tekst uit het inlogscherm in beeld.
+  - Ben je intussen in een ander tabblad opnieuw ingelogd, dan meldt de
+    scan dat de pagina bij een eerdere sessie hoort, met een knop "Pagina
+    opnieuw laden" in plaats van een "Verder gaan" dat steeds weer zou
+    mislukken.
 - **Grote sites: de scan loopt niet meer vast.** Op een site met tienduizenden
   bestanden en artikelen (niburu.co: 37.000 bestanden, 13.600 artikelen)
   raakte het geheugen op (512 MB) en brak de server de scan daarna af op
