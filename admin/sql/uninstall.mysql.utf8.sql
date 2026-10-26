@@ -4,3 +4,7 @@ DROP TABLE IF EXISTS `#__mediacleaner_known_asset_extensions`;
 DROP TABLE IF EXISTS `#__mediacleaner_quarantine`;
 DROP TABLE IF EXISTS `#__mediacleaner_ignored`;
 DROP TABLE IF EXISTS `#__mediacleaner_references`;
+DROP TABLE IF EXISTS `#__mediacleaner_state`;
+DROP TABLE IF EXISTS `#__mediacleaner_compress`;
+DROP TABLE IF EXISTS `#__mediacleaner_compress_refs`;
+DROP TABLE IF EXISTS `#__mediacleaner_duplicates`;

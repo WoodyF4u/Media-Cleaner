@@ -63,6 +63,29 @@
             <option value="1">JYES</option>
         </field>
     </fieldset>
+    <fieldset name="compress" label="COM_MEDIACLEANER_CONFIG_COMPRESS_LABEL" description="COM_MEDIACLEANER_CONFIG_COMPRESS_DESC">
+        <field name="compress_jpg_min_kb" type="number" label="COM_MEDIACLEANER_CONFIG_JPG_MIN_LABEL" description="COM_MEDIACLEANER_CONFIG_JPG_MIN_DESC" default="1024" min="1" filter="integer" />
+        <field name="compress_png_min_kb" type="number" label="COM_MEDIACLEANER_CONFIG_PNG_MIN_LABEL" description="COM_MEDIACLEANER_CONFIG_PNG_MIN_DESC" default="500" min="1" filter="integer" />
+        <field name="compress_pdf_min_kb" type="number" label="COM_MEDIACLEANER_CONFIG_PDF_MIN_LABEL" description="COM_MEDIACLEANER_CONFIG_PDF_MIN_DESC" default="500" min="1" filter="integer" />
+        <field name="compress_max_pixels" type="number" label="COM_MEDIACLEANER_CONFIG_MAX_PIXELS_LABEL" description="COM_MEDIACLEANER_CONFIG_MAX_PIXELS_DESC" default="2400" min="200" filter="integer" />
+        <field name="compress_jpg_quality" type="number" label="COM_MEDIACLEANER_CONFIG_JPG_QUALITY_LABEL" description="COM_MEDIACLEANER_CONFIG_JPG_QUALITY_DESC" default="85" min="30" max="100" filter="integer" />
+        <field name="compress_webp_quality" type="number" label="COM_MEDIACLEANER_CONFIG_WEBP_QUALITY_LABEL" description="COM_MEDIACLEANER_CONFIG_WEBP_QUALITY_DESC" default="80" min="30" max="100" filter="integer" />
+        <field name="compress_pdf_dpi" type="number" label="COM_MEDIACLEANER_CONFIG_PDF_DPI_LABEL" description="COM_MEDIACLEANER_CONFIG_PDF_DPI_DESC" default="200" min="72" max="600" filter="integer" />
+        <field name="compress_pdf_quality" type="number" label="COM_MEDIACLEANER_CONFIG_PDF_QUALITY_LABEL" description="COM_MEDIACLEANER_CONFIG_PDF_QUALITY_DESC" default="80" min="30" max="100" filter="integer" />
+        <field
+            name="compress_use_ghostscript"
+            type="radio"
+            layout="joomla.form.field.radio.switcher"
+            label="COM_MEDIACLEANER_CONFIG_GHOSTSCRIPT_LABEL"
+            description="COM_MEDIACLEANER_CONFIG_GHOSTSCRIPT_DESC"
+            default="1"
+            filter="integer"
+        >
+            <option value="0">JNO</option>
+            <option value="1">JYES</option>
+        </field>
+        <field name="storage_path" type="text" label="COM_MEDIACLEANER_CONFIG_STORAGE_LABEL" description="COM_MEDIACLEANER_CONFIG_STORAGE_DESC" default="" filter="string" />
+    </fieldset>
     <fieldset name="permissions" label="JCONFIG_PERMISSIONS_LABEL" description="JCONFIG_PERMISSIONS_DESC">
         <field
             name="rules"

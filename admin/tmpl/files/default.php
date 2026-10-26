@@ -175,7 +175,6 @@ $extensionFilterOptions = function () {
     return $options;
 };
 
-$webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
 ?>
 <form action="<?php echo Route::_('index.php?option=com_mediacleaner&view=files'); ?>" method="post" name="adminForm" id="adminForm">
 
@@ -183,6 +182,8 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
     <div id="mc-rescan-overlay-slot"></div>
 
     <h2 class="mc-page-title">Media Cleaner</h2>
+
+    <?php echo \Joomla\Component\Mediacleaner\Administrator\Helper\TabsHelper::render('files'); ?>
 
     <?php if ($this->hideContentForRescan) : ?>
         <?php // The actual "Scan wordt opnieuw uitgevoerd..." bar is
@@ -227,6 +228,9 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
             <?php echo $filterLink('ignored', Text::_('COM_MEDIACLEANER_SHOW_IGNORED'), $this->filterCounts['ignored']); ?>
             <a href="<?php echo htmlspecialchars(Route::_('index.php?option=com_mediacleaner&view=quarantine', false)); ?>" class="mc-filter-link mc-quarantine-link">
                 <?php echo Text::_('COM_MEDIACLEANER_SHOW_QUARANTINE'); ?> <span class="mc-filter-count">(<?php echo (int) $this->quarantineCount; ?>)</span> <span aria-hidden="true">&#8599;</span>
+            </a>
+            <a href="<?php echo htmlspecialchars(Route::_('index.php?option=com_mediacleaner&view=duplicates', false)); ?>" class="mc-filter-link mc-quarantine-link">
+                <?php echo Text::_('COM_MEDIACLEANER_SHOW_DUPLICATES'); ?> <span aria-hidden="true">&#8599;</span>
             </a>
             <?php if ($this->pagination) : ?>
                 <span class="mc-limitbox"><?php echo $this->pagination->getLimitBox(); ?></span>
@@ -326,9 +330,6 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
                     </th>
                     <?php if ($hasUnlinkedInList) : ?>
                         <th style="width:190px;"><?php echo Text::_('COM_MEDIACLEANER_COL_ACTION'); ?></th>
-                    <?php endif; ?>
-                    <?php if ($this->filterLinked === 'linked') : ?>
-                        <th style="width:150px;"><?php echo Text::_('COM_MEDIACLEANER_COL_WEBP'); ?></th>
                     <?php endif; ?>
                 </tr>
             </thead>
@@ -472,18 +473,6 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
                                 <?php endif; ?>
                             </td>
                         <?php endif; ?>
-                        <?php if ($this->filterLinked === 'linked') : ?>
-                            <td>
-                                <?php if (in_array($item['type'], $webpConvertibleTypes, true)) : ?>
-                                    <a
-                                        href="#"
-                                        class="mc-ignore-btn mc-webp-btn mc-f-row-webp"
-                                        data-id="<?php echo (int) $item['id']; ?>"
-                                        title="<?php echo htmlspecialchars(Text::_('COM_MEDIACLEANER_CONVERT_WEBP')); ?>"
-                                    ><?php echo Text::_('COM_MEDIACLEANER_CONVERT_WEBP'); ?></a>
-                                <?php endif; ?>
-                            </td>
-                        <?php endif; ?>
                     </tr>
                 <?php endforeach; ?>
             </tbody>
@@ -500,7 +489,6 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
 </div>
 
 <input type="hidden" name="task" id="mc-f-task" value="">
-<input type="hidden" name="id" id="mc-f-webp-id" value="">
 <input type="hidden" name="extension_hint" id="mc-f-extension-hint" value="<?php echo htmlspecialchars($this->extensionHint); ?>">
 <input type="hidden" name="system_asset_filter" id="mc-f-system-asset-filter" value="<?php echo htmlspecialchars($this->systemAssetFilter); ?>">
 <input type="hidden" name="filter_linked" value="<?php echo htmlspecialchars($this->filterLinked); ?>">
@@ -693,25 +681,6 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
     </script>
 <?php endif; ?>
 
-<?php if ($this->filterLinked === 'linked') : ?>
-    <script>
-        (function () {
-            var form      = document.getElementById('adminForm');
-            var taskField = document.getElementById('mc-f-task');
-            var idField   = document.getElementById('mc-f-webp-id');
-
-            document.querySelectorAll('.mc-f-row-webp').forEach(function (link) {
-                link.addEventListener('click', function (event) {
-                    event.preventDefault();
-
-                    idField.value   = link.dataset.id;
-                    taskField.value = 'files.webp';
-                    form.submit();
-                });
-            });
-        })();
-    </script>
-<?php endif; ?>
 
 <script>
     (function () {
@@ -736,6 +705,10 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
             'failed'   => Text::_('COM_MEDIACLEANER_SCAN_FAILED'),
             'resume'   => Text::_('COM_MEDIACLEANER_SCAN_RESUME'),
             'network'  => Text::_('COM_MEDIACLEANER_SCAN_NO_RESPONSE'),
+            'expired'  => Text::_('COM_MEDIACLEANER_SCAN_SESSION_EXPIRED'),
+            'stale'    => Text::_('COM_MEDIACLEANER_SCAN_SESSION_STALE'),
+            'login'    => Text::_('COM_MEDIACLEANER_SCAN_LOGIN_AGAIN'),
+            'reload'   => Text::_('COM_MEDIACLEANER_SCAN_RELOAD_PAGE'),
         ]); ?>;
 
         var container = document.querySelector('.com-mediacleaner-files');
@@ -753,6 +726,12 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
         var failures = 0;
         var busy     = 0;
         var doneUrl  = '';
+
+        // Set when the scan stopped because the login session is gone
+        // (or no longer matches this page): the button below the bar
+        // then reloads the page instead of continuing the scan, since
+        // every further request would be refused the same way.
+        var needsReload = false;
 
         function showOverlay() {
             if (!overlay) {
@@ -779,6 +758,15 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
                         return;
                     }
 
+                    if (needsReload) {
+                        // Without a valid session Joomla answers this
+                        // URL with its own login screen. Reloading also
+                        // fetches a fresh form token for the next scan.
+                        window.location.href = doneUrl || window.location.href;
+
+                        return;
+                    }
+
                     running  = true;
                     failures = 0;
                     busy     = 0;
@@ -799,6 +787,8 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
 
             overlay.classList.remove('mc-rescan-failed');
             resume.hidden = true;
+            resume.textContent = text.resume;
+            needsReload = false;
             fill.style.width = '1%';
             label.textContent = text.starting;
             lastLabel = text.starting;
@@ -816,6 +806,42 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
             overlay.classList.add('mc-rescan-failed');
             label.textContent = text.failed + (detail ? ' ' + detail : '');
             resume.hidden = false;
+        }
+
+        // The scan stopped because of the login session, not the scan:
+        // say so plainly and turn the button into "log in again" /
+        // "reload the page" instead of "Verder gaan".
+        function showSessionProblem(message, buttonText) {
+            running     = false;
+            needsReload = true;
+            scanId      = '';
+
+            overlay.classList.add('mc-rescan-failed');
+            label.textContent  = message;
+            resume.textContent = buttonText;
+            resume.hidden      = false;
+        }
+
+        // When the Joomla backend session has expired, Joomla does not
+        // send an error for an AJAX request: it answers with its complete
+        // login page and HTTP 200. Recognised by the login form's own
+        // fields (com_login, password field "passwd") - only ever checked
+        // on a response that already failed to be the expected JSON.
+        function isLoginPage(result) {
+            if (!result) {
+                return false;
+            }
+
+            if (result.url && /[?&]option=com_login\b/i.test(result.url)) {
+                return true;
+            }
+
+            var body = String(result.text || '');
+
+            return /name=["']?passwd["']?/i.test(body)
+                || /name=["']?option["']?\s+value=["']?com_login["']?/i.test(body)
+                || /value=["']?com_login["']?\s+name=["']?option["']?/i.test(body)
+                || /id=["']?form-login["']?/i.test(body);
         }
 
         function describe(result) {
@@ -851,7 +877,7 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
                 headers: {'X-Requested-With': 'XMLHttpRequest'}
             }).then(function (response) {
                 return response.text().then(function (responseText) {
-                    return {status: response.status, text: responseText};
+                    return {status: response.status, text: responseText, url: response.url || ''};
                 });
             }).then(function (result) {
                 var data = null;
@@ -860,6 +886,23 @@ $webpConvertibleTypes = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
                     data = JSON.parse(result.text);
                 } catch (e) {
                     data = null;
+                }
+
+                if (!data && isLoginPage(result)) {
+                    // Not a hiccup a retry would fix - stop right away
+                    // instead of first retrying four times.
+                    showSessionProblem(text.expired, text.login);
+
+                    return;
+                }
+
+                if (data && data.error && data.reload) {
+                    // The session exists but no longer matches this page
+                    // (form token refused) - e.g. logged in again in
+                    // another tab. Only a reload gives a valid token.
+                    showSessionProblem(text.stale, text.reload);
+
+                    return;
                 }
 
                 if (data && data.error) {
