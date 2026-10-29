@@ -25,7 +25,34 @@ class LinksModel extends BaseDatabaseModel
      *
      * @var string[]
      */
-    const FILTERS = ['', 'missing', 'outside', 'ignored'];
+    const FILTERS = ['', 'missing', 'outside', 'external', 'ignored'];
+
+    /**
+     * Joomla's own tables, by what people call them (v2.9.2 source filter).
+     *
+     * @var array
+     */
+    const CORE_SOURCES = [
+        'content'         => 'COM_MEDIACLEANER_LINKS_SOURCE_CONTENT',
+        'modules'         => 'COM_MEDIACLEANER_LINKS_SOURCE_MODULES',
+        'menu'            => 'COM_MEDIACLEANER_LINKS_SOURCE_MENU',
+        'categories'      => 'COM_MEDIACLEANER_LINKS_SOURCE_CATEGORIES',
+        'contact_details' => 'COM_MEDIACLEANER_LINKS_SOURCE_CONTACTS',
+        'banners'         => 'COM_MEDIACLEANER_LINKS_SOURCE_BANNERS',
+        'tags'            => 'COM_MEDIACLEANER_LINKS_SOURCE_TAGS',
+        'template_styles' => 'COM_MEDIACLEANER_LINKS_SOURCE_TEMPLATES',
+        'users'           => 'COM_MEDIACLEANER_LINKS_SOURCE_USERS',
+        'user_profiles'   => 'COM_MEDIACLEANER_LINKS_SOURCE_USERS',
+        'extensions'      => 'COM_MEDIACLEANER_LINKS_SOURCE_EXTENSIONS',
+        'fields_values'   => 'COM_MEDIACLEANER_LINKS_SOURCE_FIELDS',
+        'fields'          => 'COM_MEDIACLEANER_LINKS_SOURCE_FIELDS',
+        'newsfeeds'       => 'COM_MEDIACLEANER_LINKS_SOURCE_NEWSFEEDS',
+    ];
+
+    /**
+     * @var array  table => label
+     */
+    protected $sourceLabels = [];
 
     /**
      * Joomla's "trashed" state.
@@ -65,26 +92,38 @@ class LinksModel extends BaseDatabaseModel
     }
 
     /**
-     * @param   boolean  $showTrashed
-     *
-     * @return  array  ['' => n, 'missing' => n, 'outside' => n, 'ignored' => n, 'trashed' => n]
+     * @return  boolean  The last check included links to other websites.
      */
-    public function getCounts($showTrashed)
+    public function checkedExternal()
     {
-        $db   = $this->getDatabase();
-        $rows = $db->setQuery(
-            $db->getQuery(true)
-                ->select([
-                    $db->quoteName('kind'),
-                    $db->quoteName('ignored'),
-                    'CASE WHEN ' . $db->quoteName('item_state') . ' = ' . self::TRASHED . ' THEN 1 ELSE 0 END AS ' . $db->quoteName('trashed'),
-                    'COUNT(*) AS ' . $db->quoteName('n'),
-                ])
-                ->from($db->quoteName('#__mediacleaner_links'))
-                ->group($db->quoteName(['kind', 'ignored', 'trashed']))
-        )->loadAssocList();
+        return StorageLocator::getState('links_checked_external', '0') === '1';
+    }
 
-        $counts = ['' => 0, 'missing' => 0, 'outside' => 0, 'ignored' => 0, 'trashed' => 0];
+    /**
+     * @param   boolean  $showTrashed
+     * @param   string   $source  Table name, '' = all.
+     *
+     * @return  array  ['' => n, 'missing' => n, 'outside' => n, 'external' => n, 'ignored' => n, 'trashed' => n]
+     */
+    public function getCounts($showTrashed, $source = '')
+    {
+        $db    = $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->select([
+                $db->quoteName('kind'),
+                $db->quoteName('ignored'),
+                'CASE WHEN ' . $db->quoteName('item_state') . ' = ' . self::TRASHED . ' THEN 1 ELSE 0 END AS ' . $db->quoteName('trashed'),
+                'COUNT(*) AS ' . $db->quoteName('n'),
+            ])
+            ->from($db->quoteName('#__mediacleaner_links'))
+            ->group($db->quoteName(['kind', 'ignored', 'trashed']));
+
+        if ($source !== '') {
+            $query->where($db->quoteName('table_name') . ' = ' . $db->quote($source));
+        }
+
+        $rows   = $db->setQuery($query)->loadAssocList();
+        $counts = ['' => 0, 'missing' => 0, 'outside' => 0, 'external' => 0, 'ignored' => 0, 'trashed' => 0];
 
         foreach ($rows as $row) {
             $n = (int) $row['n'];
@@ -100,9 +139,10 @@ class LinksModel extends BaseDatabaseModel
             }
 
             $counts[''] += $n;
+            $kind        = strpos($row['kind'], 'ext_') === 0 ? 'external' : $row['kind'];
 
-            if (isset($counts[$row['kind']])) {
-                $counts[$row['kind']] += $n;
+            if (isset($counts[$kind])) {
+                $counts[$kind] += $n;
             }
         }
 
@@ -110,18 +150,19 @@ class LinksModel extends BaseDatabaseModel
     }
 
     /**
-     * @param   string   $filter
-     * @param   boolean  $showTrashed
-     * @param   integer  $start
-     * @param   integer  $limit
+     * The WHERE of the list, shared by getItems(), getSources() and
+     * getIdsForFilter() so they always mean the same rows.
      *
-     * @return  array  ['items' => array, 'total' => int]
+     * @param   \Joomla\Database\QueryInterface  $query
+     * @param   string                            $filter
+     * @param   boolean                           $showTrashed
+     * @param   string                            $source  Table name, '' = all.
+     *
+     * @return  void
      */
-    public function getItems($filter, $showTrashed, $start, $limit)
+    protected function applyWhere($query, $filter, $showTrashed, $source)
     {
-        $db    = $this->getDatabase();
-        $query = $db->getQuery(true)
-            ->from($db->quoteName('#__mediacleaner_links'));
+        $db = $this->getDatabase();
 
         if ($filter === 'ignored') {
             $query->where($db->quoteName('ignored') . ' = 1');
@@ -130,12 +171,146 @@ class LinksModel extends BaseDatabaseModel
 
             if ($filter === 'missing' || $filter === 'outside') {
                 $query->where($db->quoteName('kind') . ' = ' . $db->quote($filter));
+            } elseif ($filter === 'external') {
+                $query->where($db->quoteName('kind') . ' LIKE ' . $db->quote('ext\_%'));
             }
         }
 
         if (!$showTrashed) {
             $query->where('(' . $db->quoteName('item_state') . ' IS NULL OR ' . $db->quoteName('item_state') . ' <> ' . self::TRASHED . ')');
         }
+
+        if ($source !== '') {
+            $query->where($db->quoteName('table_name') . ' = ' . $db->quote($source));
+        }
+    }
+
+    /**
+     * Where the references of the current filter come from: one entry per
+     * table, named as people know it ("Artikelen", "Balboa Gallery").
+     *
+     * @param   string   $filter
+     * @param   boolean  $showTrashed
+     *
+     * @return  array  table => ['label' => string, 'count' => int], by label
+     */
+    public function getSources($filter, $showTrashed)
+    {
+        $db    = $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->select([$db->quoteName('table_name'), 'COUNT(*) AS ' . $db->quoteName('n')])
+            ->from($db->quoteName('#__mediacleaner_links'))
+            ->group($db->quoteName('table_name'));
+
+        $this->applyWhere($query, $filter, $showTrashed, '');
+
+        $sources = [];
+
+        foreach ($db->setQuery($query)->loadAssocList() as $row) {
+            $sources[$row['table_name']] = ['label' => $this->sourceLabel($row['table_name']), 'count' => (int) $row['n']];
+        }
+
+        uasort($sources, static function ($a, $b) {
+            return strcasecmp($a['label'], $b['label']);
+        });
+
+        return $sources;
+    }
+
+    /**
+     * Name of a table as people know it: Joomla's own tables by what they
+     * hold, an extension's tables by the extension's name (looked up
+     * generically: "#__gallery_items" belongs to the installed component
+     * com_gallery, whatever it is called), else the table itself.
+     *
+     * @param   string  $table  Full table name.
+     *
+     * @return  string
+     */
+    public function sourceLabel($table)
+    {
+        if (isset($this->sourceLabels[$table])) {
+            return $this->sourceLabels[$table];
+        }
+
+        $db     = $this->getDatabase();
+        $prefix = $db->getPrefix();
+        $short  = strpos($table, $prefix) === 0 ? substr($table, \strlen($prefix)) : $table;
+
+        if (isset(self::CORE_SOURCES[$short])) {
+            return $this->sourceLabels[$table] = Text::_(self::CORE_SOURCES[$short]);
+        }
+
+        $parts = explode('_', $short);
+
+        for ($i = \count($parts); $i >= 1; $i--) {
+            $name = implode('_', \array_slice($parts, 0, $i));
+
+            try {
+                $row = $db->setQuery(
+                    $db->getQuery(true)
+                        ->select($db->quoteName(['name', 'element', 'type']))
+                        ->from($db->quoteName('#__extensions'))
+                        ->where($db->quoteName('element') . ' IN (' . implode(',', array_map([$db, 'quote'], ['com_' . $name, $name, 'mod_' . $name, 'pkg_' . $name])) . ')')
+                        ->order('CASE ' . $db->quoteName('type') . " WHEN 'component' THEN 0 WHEN 'package' THEN 1 ELSE 2 END")
+                        ->setLimit(1)
+                )->loadAssoc();
+            } catch (\Throwable $e) {
+                $row = null;
+            }
+
+            if ($row) {
+                $language = Factory::getApplication()->getLanguage();
+                $language->load($row['element'] . '.sys', JPATH_ADMINISTRATOR)
+                    || $language->load($row['element'] . '.sys', JPATH_ADMINISTRATOR . '/components/' . $row['element']);
+
+                $label = trim(Text::_($row['name']));
+
+                return $this->sourceLabels[$table] = $label !== '' ? $label : $row['element'];
+            }
+        }
+
+        return $this->sourceLabels[$table] = Text::sprintf('COM_MEDIACLEANER_LINKS_SOURCE_TABLE', '#__' . $short);
+    }
+
+    /**
+     * Every id the current filter holds, over all pages - for "Selecteer
+     * alle ... (alle pagina's)".
+     *
+     * @param   string   $filter
+     * @param   boolean  $showTrashed
+     * @param   string   $source
+     *
+     * @return  integer[]
+     */
+    public function getIdsForFilter($filter, $showTrashed, $source)
+    {
+        $db    = $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->select($db->quoteName('id'))
+            ->from($db->quoteName('#__mediacleaner_links'));
+
+        $this->applyWhere($query, $filter, $showTrashed, $source);
+
+        return array_map('intval', $db->setQuery($query)->loadColumn());
+    }
+
+    /**
+     * @param   string   $filter
+     * @param   boolean  $showTrashed
+     * @param   integer  $start
+     * @param   integer  $limit
+     * @param   string   $source  Table name, '' = all.
+     *
+     * @return  array  ['items' => array, 'total' => int]
+     */
+    public function getItems($filter, $showTrashed, $start, $limit, $source = '')
+    {
+        $db    = $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->from($db->quoteName('#__mediacleaner_links'));
+
+        $this->applyWhere($query, $filter, $showTrashed, $source);
 
         $total = (int) $db->setQuery((clone $query)->select('COUNT(*)'))->loadResult();
 
@@ -244,11 +419,19 @@ class LinksModel extends BaseDatabaseModel
                     continue;
                 }
 
-                $action = 'path';
                 $target = (string) $suggestions[(int) $m[1]]['path'];
+                $action = ($suggestions[(int) $m[1]]['reason'] ?? '') === 'archive' ? 'url' : 'path';
             } elseif ($choice === 'custom') {
-                $target = $fixer->normaliseTarget((string) ($requests[$id]['custom'] ?? ''));
-                $action = 'path';
+                $custom = trim((string) ($requests[$id]['custom'] ?? ''));
+
+                // A web address (v2.9.2), or a file of this site.
+                if (LinkFixer::normaliseUrl($custom) !== null && $fixer->normaliseTarget($custom) === null) {
+                    $target = LinkFixer::normaliseUrl($custom);
+                    $action = 'url';
+                } else {
+                    $target = $fixer->normaliseTarget($custom);
+                    $action = 'path';
+                }
 
                 if ($target === null) {
                     $this->countError($result, 'CUSTOM_INVALID');

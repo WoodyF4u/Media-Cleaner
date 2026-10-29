@@ -176,6 +176,13 @@ weghalen en de kleine foto laten staan, de afbeelding weghalen, of zelf
 een pad invullen. Per regel of voor een selectie in één keer. Elke
 reparatie staat onder **Gerepareerd** en is daar ongedaan te maken.
 
+Vanaf 2.9.2 kun je de lijst beperken tot één **bron** (artikelen,
+modules, of de tabellen van één extensie, zoals Balboa Gallery) en alles
+van die bron in één keer negeren. Met **Ook links naar andere websites
+controleren** wordt ook elk extern adres opgevraagd: je ziet welke
+websites of pagina's niet meer bestaan, met een bewaarde kopie uit het
+internetarchief als voorstel.
+
 ## Vereisten
 
 - Joomla 6.x

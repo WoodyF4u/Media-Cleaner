@@ -23,7 +23,9 @@ use Joomla\CMS\Factory;
  *             of a pop-up link stays on the page, it just does not open
  *             any more);
  *   'remove'  remove a broken image (and the pop-up link around it, when
- *             the image was all that link held).
+ *             the image was all that link held);
+ *   'url'     (v2.9.2) point the link at a web address - a saved copy at
+ *             the Internet Archive, or an address typed in by the user.
  *
  * Only the reference as it was found is touched, with the same rules as
  * elsewhere in this component: the value is taken apart first when it is
@@ -51,6 +53,25 @@ class LinkFixer
         $this->db       = $db;
         $this->checker  = new LinkChecker($db);
         $this->rewriter = new ReferenceRewriter($db);
+    }
+
+    /**
+     * A web address typed in by the user (or the archive's copy), or null
+     * when it is not a plain http(s) address.
+     *
+     * @param   string  $input
+     *
+     * @return  string|null
+     */
+    public static function normaliseUrl($input)
+    {
+        $url = trim((string) $input);
+
+        if (!preg_match('~^https?://[^/\s?#]+\.[^/\s?#]+~i', $url) || preg_match('~[\s<>"\'{}|\\\\^`]~', $url)) {
+            return null;
+        }
+
+        return filter_var($url, FILTER_VALIDATE_URL) !== false ? $url : null;
     }
 
     /**
@@ -116,6 +137,10 @@ class LinkFixer
             return ['ok' => false, 'error' => 'TARGET_MISSING'];
         }
 
+        if ($action === 'url' && self::normaliseUrl($target) === null) {
+            return ['ok' => false, 'error' => 'CUSTOM_INVALID'];
+        }
+
         if ($action === 'unwrap' && $link['element'] !== 'a') {
             return ['ok' => false, 'error' => 'NOT_POSSIBLE'];
         }
@@ -125,7 +150,17 @@ class LinkFixer
         }
 
         $raw    = (string) $link['url'];
-        $newRaw = $action === 'path' ? $this->replacementFor($raw, $link, $target) : '';
+        $newRaw = '';
+
+        if ($action === 'path') {
+            $newRaw = $this->replacementFor($raw, $link, $target);
+        } elseif ($action === 'url') {
+            // In HTML "&" is written "&amp;"; keep to how the link was written.
+            $newRaw = preg_match('~&(?:amp|#0?38);~i', $raw) ? str_replace('&', '&amp;', self::normaliseUrl($target)) : self::normaliseUrl($target);
+            $action = 'path';
+            $target = '';
+        }
+
         $fn     = $this->transformer($action, $raw, $newRaw);
         $pairs  = [];
 
@@ -250,7 +285,7 @@ class LinkFixer
         if ($exists === 0) {
             $record = [];
 
-            foreach (['hash', 'table_name', 'pk_column', 'pk_value', 'column_name', 'url', 'path', 'base', 'kind', 'element', 'popup', 'inner_path',
+            foreach (['hash', 'table_name', 'pk_column', 'pk_value', 'column_name', 'url', 'path', 'base', 'kind', 'detail', 'element', 'popup', 'inner_path',
                 'occurrences', 'location_type', 'location_title', 'location_url', 'item_state', 'suggestions', 'best', 'found_at'] as $key) {
                 if (\array_key_exists($key, $link)) {
                     $record[$key] = $link[$key];
@@ -288,6 +323,12 @@ class LinkFixer
         $rawPath = substr($raw, 0, $cut);
         $suffix  = substr($raw, $cut);
         $path    = $target;
+
+        // A link to another website pointed at a file of this site: the
+        // other site's address, query and fragment have no meaning here.
+        if ($link['base'] === 'ext') {
+            return implode('/', array_map('rawurlencode', explode('/', $target)));
+        }
 
         if (strpos($rawPath, '%') !== false || strpos($target, ' ') !== false && strpos($rawPath, ' ') === false) {
             $path = implode('/', array_map('rawurlencode', explode('/', $target)));

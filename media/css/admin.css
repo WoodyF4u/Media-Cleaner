@@ -976,3 +976,25 @@ input[type="checkbox"].form-check-input:checked::after {
     background: #5c4410;
     color: #ffdd8a;
 }
+
+/* === Linkcontrole: bronnen en externe links (v2.9.2) ==================== */
+
+.mc-links-external-choice {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+}
+.mc-links-source {
+    width: auto;
+    max-width: 320px;
+}
+.mc-links-kind-ext_gone {
+    background: #922b21;
+}
+.mc-links-kind-ext_404 {
+    background: #c0392b;
+}
+.mc-links-kind-ext_down {
+    background: #7f8c8d;
+}

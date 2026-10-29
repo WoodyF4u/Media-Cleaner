@@ -18,6 +18,8 @@ use Joomla\CMS\Toolbar\ToolbarHelper;
 use Joomla\CMS\Uri\Uri;
 use Joomla\Component\Mediacleaner\Administrator\Helper\TabsHelper;
 use Joomla\Component\Mediacleaner\Administrator\Model\LinksModel;
+use Joomla\Component\Mediacleaner\Administrator\Service\LinkChecker;
+use Joomla\Component\Mediacleaner\Administrator\Service\StorageLocator;
 
 /**
  * The Linkcontrole tab (v2.9.1).
@@ -38,6 +40,21 @@ class HtmlView extends BaseHtmlView
 
     /** @var boolean */
     protected $showTrashed = false;
+
+    /** @var string  Table name the list is narrowed to, '' = all (v2.9.2). */
+    protected $source = '';
+
+    /** @var array  See LinksModel::getSources(). */
+    protected $sources = [];
+
+    /** @var boolean  Checkbox "also external links" (remembered). */
+    protected $externalChoice = false;
+
+    /** @var boolean  The last check included external links. */
+    protected $checkedExternal = false;
+
+    /** @var boolean  This server can request other websites. */
+    protected $canCheckExternal = true;
 
     /** @var array */
     protected $list = ['items' => [], 'total' => 0];
@@ -77,22 +94,36 @@ class HtmlView extends BaseHtmlView
         $this->showTrashed = (int) $app->getUserStateFromRequest('com_mediacleaner.links.trashed', 'trashed', 0, 'int') === 1;
         $this->start       = max(0, (int) $app->getUserStateFromRequest('com_mediacleaner.links.start', 'start', 0, 'int'));
 
+        $this->source = (string) $app->getUserStateFromRequest('com_mediacleaner.links.source', 'source', '', 'string');
+
         // Another filter: back to page 1.
-        if ($input->get('filter', null, 'cmd') !== null || $input->get('trashed', null, 'int') !== null) {
+        if ($input->get('filter', null, 'cmd') !== null || $input->get('trashed', null, 'int') !== null || $input->get('source', null, 'string') !== null) {
             $this->start = $input->getInt('start', 0);
             $app->setUserState('com_mediacleaner.links.start', $this->start);
         }
 
         $this->checkedAt = $model->getCheckedAt();
         $this->wasCut    = $model->wasCut();
-        $this->counts    = $model->getCounts($this->showTrashed);
-        $this->list      = $model->getItems($this->filter, $this->showTrashed, $this->start, $this->limit);
+        $this->sources   = $model->getSources($this->filter, $this->showTrashed);
+
+        // A source the current filter has nothing of (any more): all.
+        if ($this->source !== '' && !isset($this->sources[$this->source])) {
+            $this->source = '';
+            $app->setUserState('com_mediacleaner.links.source', '');
+        }
+
+        $this->counts    = $model->getCounts($this->showTrashed, $this->source);
+        $this->list      = $model->getItems($this->filter, $this->showTrashed, $this->start, $this->limit, $this->source);
+
+        $this->externalChoice   = StorageLocator::getState('links_external', '0') === '1';
+        $this->checkedExternal  = $model->checkedExternal();
+        $this->canCheckExternal = LinkChecker::canCheckExternal();
 
         // Page emptied by repairs: show the last page that has rows.
         if (!$this->list['items'] && $this->start > 0 && $this->list['total'] > 0) {
             $this->start = (int) (floor(($this->list['total'] - 1) / $this->limit) * $this->limit);
             $app->setUserState('com_mediacleaner.links.start', $this->start);
-            $this->list = $model->getItems($this->filter, $this->showTrashed, $this->start, $this->limit);
+            $this->list = $model->getItems($this->filter, $this->showTrashed, $this->start, $this->limit, $this->source);
         }
 
         $this->fixStart = max(0, $input->getInt('fstart', 0));

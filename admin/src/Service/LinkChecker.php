@@ -46,6 +46,16 @@ use Joomla\CMS\Uri\Uri;
  * kind "outside", so it can be pointed at this site's own copy (or the
  * file copied in) before the site moves.
  *
+ * Optionally (v2.9.2) links to other websites are checked too: every
+ * distinct address is requested once (HEAD, falling back to a small GET),
+ * a few at a time, in the same short steps. Reported are only addresses
+ * that are clearly gone: the domain no longer exists (kind "ext_gone"),
+ * the page answers 404/410 ("ext_404"), or the site cannot be reached or
+ * answers with a server error ("ext_down" - may be temporary, and it is
+ * tried a second time first). A site that refuses robots (401, 403, 429,
+ * ...) still exists and is not reported. For a page that is gone, the
+ * Internet Archive is asked for a saved copy to point the link at.
+ *
  * For every broken link, possible repairs are worked out once at the end
  * (see suggest()): another case, a missing dot before the extension, the
  * same name with another extension (converted file), the same file
@@ -90,6 +100,27 @@ class LinkChecker
      * @var integer
      */
     protected $maxFound = 20000;
+
+    /**
+     * Distinct external addresses checked per run at most.
+     *
+     * @var integer
+     */
+    protected $maxUrls = 5000;
+
+    /**
+     * Addresses requested at the same time.
+     *
+     * @var integer
+     */
+    protected $parallel = 10;
+
+    /**
+     * Saved copies looked up at the Internet Archive per run at most.
+     *
+     * @var integer
+     */
+    protected $maxArchive = 300;
 
     /** @var \Joomla\Database\DatabaseDriver */
     protected $db;
@@ -155,9 +186,11 @@ class LinkChecker
     // ------------------------------------------------------------------
 
     /**
+     * @param   boolean  $external  Also check links to other websites.
+     *
      * @return  string  Job id.
      */
-    public function start()
+    public function start($external = false)
     {
         $prefix  = $this->db->getPrefix();
         $targets = [];
@@ -179,6 +212,14 @@ class LinkChecker
             'found'   => [],
             'rows'    => 0,
             'full'    => false,
+            // v2.9.2: external links.
+            'external' => $external && self::canCheckExternal(),
+            'phase'    => 'db',
+            'ext'      => [],
+            'urls'     => [],
+            'retry'    => [],
+            'archive'  => [],
+            'extFull'  => false,
         ]);
 
         return $id;
@@ -208,6 +249,19 @@ class LinkChecker
             }
 
             if (microtime(true) >= $deadline) {
+                $this->save($id, $state);
+
+                return $this->status($state, false, 0);
+            }
+        }
+
+        if (!empty($state['external'])) {
+            // Requests may take up to their own time-out past the budget.
+            @set_time_limit(120);
+
+            $state['phase'] = 'ext';
+
+            if (!$this->checkUrls($state, $deadline) || !$this->lookUpArchive($state, $deadline)) {
                 $this->save($id, $state);
 
                 return $this->status($state, false, 0);
@@ -265,6 +319,8 @@ class LinkChecker
             }
         }
 
+        $extMode = $this->externalMode($target['table'], $state);
+
         foreach ((array) $rows as $row) {
             $pkValue = (string) $row[$target['pk']];
             $info    = null;
@@ -276,7 +332,7 @@ class LinkChecker
                     continue;
                 }
 
-                foreach ($this->brokenIn($value) as $link) {
+                foreach ($this->brokenIn($value, $extMode) as $link) {
                     if ($info === null) {
                         $info = $describe['fn']($row);
                     }
@@ -327,7 +383,7 @@ class LinkChecker
         foreach ($values as $value) {
             $value = (string) $value;
 
-            foreach ($this->brokenIn($value) as $link) {
+            foreach ($this->brokenIn($value, $this->externalMode($target['table'], $state)) as $link) {
                 $info = $isFields ? $this->describeFieldValue($target['table'], $value) : ['type' => '', 'title' => '', 'url' => '', 'state' => null];
 
                 $this->collect($state, $target['table'], '', '', $column, $link, $info);
@@ -344,6 +400,26 @@ class LinkChecker
     }
 
     /**
+     * How external links are collected from $table: 0 not, 1 from HTML
+     * only, 2 also whole values (tables with content people make).
+     *
+     * @param   string  $table
+     * @param   array   $state
+     *
+     * @return  integer
+     */
+    protected function externalMode($table, array $state)
+    {
+        if (empty($state['external'])) {
+            return 0;
+        }
+
+        $short = substr($table, \strlen($this->db->getPrefix()));
+
+        return \in_array($short, ['content', 'menu', 'modules', 'categories', 'contact_details', 'banners', 'fields_values', 'tags'], true) ? 2 : 1;
+    }
+
+    /**
      * @param   array   &$state
      * @param   string  $table
      * @param   string  $pk
@@ -356,13 +432,27 @@ class LinkChecker
      */
     protected function collect(array &$state, $table, $pk, $pkValue, $column, array $link, array $info)
     {
-        if (\count($state['found']) >= $this->maxFound) {
-            $state['full'] = true;
+        $list = $link['kind'] === 'ext' ? 'ext' : 'found';
+
+        if (\count($state[$list]) >= $this->maxFound) {
+            $state[$list === 'ext' ? 'extFull' : 'full'] = true;
 
             return;
         }
 
-        $state['found'][] = $link + [
+        if ($list === 'ext') {
+            if (!\array_key_exists($link['path'], $state['urls'])) {
+                if (\count($state['urls']) >= $this->maxUrls) {
+                    $state['extFull'] = true;
+
+                    return;
+                }
+
+                $state['urls'][$link['path']] = null;
+            }
+        }
+
+        $state[$list][] = $link + [
             'table_name'     => $table,
             'pk_column'      => $pk,
             'pk_value'       => $pkValue,
@@ -383,11 +473,17 @@ class LinkChecker
      * reference: ['url', 'path', 'base', 'kind', 'element', 'popup',
      * 'inner_path', 'occurrences'].
      *
-     * @param   string  $value
+     * With $withExternal (1: in HTML only, 2: also values that are an
+     * address as a whole), links to other websites come along too, as kind
+     * 'ext' with the address in 'path' - whether they work is checked
+     * later, once per address (see checkUrls()).
+     *
+     * @param   string   $value
+     * @param   integer  $withExternal  0, 1 or 2
      *
      * @return  array
      */
-    public function brokenIn($value)
+    public function brokenIn($value, $withExternal = 0)
     {
         $refs = [];
 
@@ -415,6 +511,26 @@ class LinkChecker
             $resolved = $this->resolve($raw);
 
             if ($resolved === null) {
+                // Web addresses in settings (an extension's author URL, an
+                // update server, ...) are nobody's link: only links in HTML,
+                // or values of content (a menu item of type URL, an
+                // article's links, a custom field) - $withExternal === 2.
+                $address = $withExternal && $ref['element'] !== '' && ($ref['element'] !== 'value' || $withExternal === 2)
+                    ? $this->externalUrl($raw) : null;
+
+                if ($address !== null) {
+                    $broken[] = [
+                        'url'         => (string) $raw,
+                        'path'        => $address,
+                        'base'        => 'ext',
+                        'kind'        => 'ext',
+                        'element'     => $ref['element'],
+                        'popup'       => $ref['popup'] ? 1 : 0,
+                        'inner_path'  => $this->innerPath($ref['inner']),
+                        'occurrences' => (int) $ref['occurrences'],
+                    ];
+                }
+
                 continue;
             }
 
@@ -434,15 +550,7 @@ class LinkChecker
                 continue;
             }
 
-            $inner = '';
-
-            if ($ref['inner'] !== '') {
-                $innerResolved = $this->resolve($ref['inner']);
-
-                if ($innerResolved !== null && $innerResolved['base'] === 'site' && $this->fileExists('site', $innerResolved['rel'])) {
-                    $inner = $innerResolved['rel'];
-                }
-            }
+            $inner = $this->innerPath($ref['inner']);
 
             $broken[] = [
                 'url'         => (string) $raw,
@@ -457,6 +565,53 @@ class LinkChecker
         }
 
         return $broken;
+    }
+
+    /**
+     * The image inside a link, as an existing file of this site, or ''.
+     *
+     * @param   string  $raw
+     *
+     * @return  string
+     */
+    protected function innerPath($raw)
+    {
+        if ($raw === '') {
+            return '';
+        }
+
+        $resolved = $this->resolve($raw);
+
+        return $resolved !== null && $resolved['base'] === 'site' && $this->fileExists('site', $resolved['rel']) ? $resolved['rel'] : '';
+    }
+
+    /**
+     * A link to another website, as the address to request (without
+     * #fragment), or null.
+     *
+     * @param   string  $raw
+     *
+     * @return  string|null
+     */
+    public function externalUrl($raw)
+    {
+        $url = html_entity_decode(trim((string) $raw), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        if (strpos($url, '//') === 0) {
+            $url = 'https:' . $url;
+        }
+
+        if (!preg_match('~^https?://([^/?#\s]+)~i', $url, $m) || preg_match('~[\s<>"{}|\\\\^`]~', $url)) {
+            return null;
+        }
+
+        $host = strtolower(preg_replace('~:\d+$~', '', preg_replace('~^[^@]*@~', '', $m[1])));
+
+        if ($host === '' || strpos($host, '.') === false && $host !== 'localhost' || \in_array($host, $this->hosts, true)) {
+            return null;
+        }
+
+        return preg_replace('~#.*$~', '', $url);
     }
 
     /**
@@ -545,7 +700,9 @@ class LinkChecker
         if (!$found && $whole !== '' && \strlen($whole) <= 2048 && strpos($whole, '/') !== false && strpbrk($whole, "<>\"'\r\n\t") === false) {
             $pathPart = substr($whole, 0, strcspn($whole, '?#'));
 
-            if ((strpos($pathPart, ' ') === false || preg_match('~\.(?:' . self::MEDIA_EXT . ')$~i', $pathPart)) && $this->resolve($whole) !== null) {
+            if ((strpos($pathPart, ' ') === false || preg_match('~\.(?:' . self::MEDIA_EXT . ')$~i', $pathPart))
+                && ($this->resolve($whole) !== null || $this->externalUrl($whole) !== null)
+            ) {
                 return [['raw' => $whole, 'element' => 'value', 'popup' => false, 'inner' => '']];
             }
         }
@@ -864,6 +1021,359 @@ class LinkChecker
     }
 
     // ------------------------------------------------------------------
+    // External links (v2.9.2)
+    // ------------------------------------------------------------------
+
+    /**
+     * Whether this server can request other websites at all.
+     *
+     * @return  boolean
+     */
+    public static function canCheckExternal()
+    {
+        return \function_exists('curl_multi_init') && \function_exists('curl_init');
+    }
+
+    /**
+     * Request the collected addresses, a few at a time, until $deadline.
+     * $state['urls'][address] becomes ['kind' => null|'gone'|'404'|'down',
+     * 'detail' => text]. Addresses on a domain found not to exist are not
+     * requested again; addresses that could not be reached are tried a
+     * second time, once, with more patience.
+     *
+     * @param   array  &$state
+     * @param   float  $deadline
+     *
+     * @return  boolean  true when every address has an answer.
+     */
+    protected function checkUrls(array &$state, $deadline)
+    {
+        $deadHosts = [];
+
+        foreach ($state['urls'] as $url => $result) {
+            if (\is_array($result) && $result['kind'] === 'gone') {
+                $deadHosts[$this->hostOf($url)] = $result;
+            }
+        }
+
+        while (true) {
+            $batch = [];
+
+            foreach ($state['urls'] as $url => $result) {
+                if ($result !== null) {
+                    continue;
+                }
+
+                $host = $this->hostOf($url);
+
+                if (isset($deadHosts[$host])) {
+                    $state['urls'][$url] = $deadHosts[$host];
+                    continue;
+                }
+
+                $batch[] = $url;
+
+                if (\count($batch) >= $this->parallel) {
+                    break;
+                }
+            }
+
+            if (!$batch) {
+                break;
+            }
+
+            if (microtime(true) >= $deadline) {
+                return false;
+            }
+
+            foreach ($this->probe($batch, 5, 10) as $url => $answer) {
+                $result              = $this->classify($answer, $state);
+                $state['urls'][$url] = $result;
+
+                if ($result['kind'] === 'gone') {
+                    $deadHosts[$this->hostOf($url)] = $result;
+                } elseif ($result['kind'] === 'down') {
+                    $state['retry'][$url] = true;
+                }
+            }
+        }
+
+        // Second try for what could not be reached: often just slow.
+        while ($state['retry']) {
+            if (microtime(true) >= $deadline) {
+                return false;
+            }
+
+            $batch = \array_slice(array_keys($state['retry']), 0, $this->parallel);
+
+            foreach ($this->probe($batch, 10, 20) as $url => $answer) {
+                $state['urls'][$url] = $this->classify($answer, $state);
+                unset($state['retry'][$url]);
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * For pages that are gone: ask the Internet Archive for a saved copy.
+     * $state['archive'][address] = copy's address or ''.
+     *
+     * @param   array  &$state
+     * @param   float  $deadline
+     *
+     * @return  boolean  true when done.
+     */
+    protected function lookUpArchive(array &$state, $deadline)
+    {
+        $todo = [];
+
+        foreach ($state['urls'] as $url => $result) {
+            if (\is_array($result) && \in_array($result['kind'], ['gone', '404'], true) && !\array_key_exists($url, $state['archive'])) {
+                $todo[] = $url;
+            }
+        }
+
+        $todo = \array_slice($todo, 0, max(0, $this->maxArchive - \count($state['archive'])));
+
+        foreach (array_chunk($todo, $this->parallel) as $batch) {
+            if (microtime(true) >= $deadline) {
+                return false;
+            }
+
+            $ask = [];
+
+            foreach ($batch as $url) {
+                $ask['https://archive.org/wayback/available?url=' . rawurlencode($url)] = $url;
+            }
+
+            foreach ($this->probe(array_keys($ask), 5, 10, true) as $api => $answer) {
+                $copy = '';
+                $data = json_decode((string) $answer['body'], true);
+                $snap = $data['archived_snapshots']['closest'] ?? null;
+
+                if (\is_array($snap) && !empty($snap['available']) && (string) ($snap['status'] ?? '') === '200' && !empty($snap['url'])) {
+                    $copy = preg_replace('~^http://~i', 'https://', (string) $snap['url']);
+                }
+
+                $state['archive'][$ask[$api]] = $copy;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Request addresses in parallel. HEAD first; a site that does not
+     * allow HEAD (or answers it strangely) gets a GET of which only the
+     * start is read.
+     *
+     * @param   string[]  $urls
+     * @param   integer   $connectTimeout
+     * @param   integer   $timeout
+     * @param   boolean   $body  GET and keep the answer (for the archive).
+     *
+     * @return  array  url => ['code' => int, 'errno' => int, 'error' => string, 'body' => string]
+     */
+    protected function probe(array $urls, $connectTimeout, $timeout, $body = false)
+    {
+        $answers = $this->multi($urls, $connectTimeout, $timeout, $body ? 'body' : 'head');
+
+        if ($body) {
+            return $answers;
+        }
+
+        $again = [];
+
+        foreach ($answers as $url => $answer) {
+            if ($answer['errno'] === 0 && \in_array($answer['code'], [0, 400, 403, 404, 405, 406, 410, 429, 500, 501, 502, 503], true)) {
+                $again[] = $url;
+            }
+        }
+
+        if ($again) {
+            foreach ($this->multi($again, $connectTimeout, $timeout, 'get') as $url => $answer) {
+                $answers[$url] = $answer;
+            }
+        }
+
+        return $answers;
+    }
+
+    /**
+     * @param   string[]  $urls
+     * @param   integer   $connectTimeout
+     * @param   integer   $timeout
+     * @param   string    $mode  'head', 'get' (first 16 KB) or 'body'
+     *
+     * @return  array
+     */
+    protected function multi(array $urls, $connectTimeout, $timeout, $mode)
+    {
+        $multi   = curl_multi_init();
+        $handles = [];
+        $bodies  = [];
+        $agent   = 'Mozilla/5.0 (compatible; MediaCleaner-Linkcontrole; +' . rtrim(Uri::root(), '/') . ')';
+
+        foreach ($urls as $url) {
+            $ch = curl_init($url);
+
+            $bodies[$url] = '';
+
+            curl_setopt_array($ch, [
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS      => 8,
+                CURLOPT_CONNECTTIMEOUT => $connectTimeout,
+                CURLOPT_TIMEOUT        => $timeout,
+                CURLOPT_USERAGENT      => $agent,
+                CURLOPT_HTTPHEADER     => ['Accept: text/html,application/xhtml+xml,image/*,*/*;q=0.8', 'Accept-Language: nl,en;q=0.8'],
+                CURLOPT_NOBODY         => $mode === 'head',
+                CURLOPT_RETURNTRANSFER => false,
+                CURLOPT_HEADER         => false,
+                CURLOPT_ENCODING       => '',
+                CURLOPT_WRITEFUNCTION  => static function ($ch, $data) use (&$bodies, $url, $mode) {
+                    if ($mode === 'body') {
+                        $bodies[$url] .= $data;
+
+                        return \strlen($bodies[$url]) > 262144 ? 0 : \strlen($data);
+                    }
+
+                    // Only whether the page answers matters: stop reading.
+                    return \strlen($bodies[$url] .= $data) > 16384 ? 0 : \strlen($data);
+                },
+            ]);
+
+            curl_multi_add_handle($multi, $ch);
+            $handles[$url] = $ch;
+        }
+
+        // With curl_multi the outcome of each request (DNS error, time-out,
+        // ...) only comes through curl_multi_info_read(), not curl_errno().
+        $results = [];
+
+        do {
+            $status = curl_multi_exec($multi, $running);
+
+            while ($info = curl_multi_info_read($multi)) {
+                $results[spl_object_id($info['handle'])] = (int) $info['result'];
+            }
+
+            if ($running && curl_multi_select($multi, 1.0) === -1) {
+                usleep(100000);
+            }
+        } while ($running && $status === CURLM_OK);
+
+        while ($info = curl_multi_info_read($multi)) {
+            $results[spl_object_id($info['handle'])] = (int) $info['result'];
+        }
+
+        $answers = [];
+
+        foreach ($handles as $url => $ch) {
+            $errno = $results[spl_object_id($ch)] ?? curl_errno($ch);
+            $code  = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+
+            // Reading stopped on purpose (CURLE_WRITE_ERROR) after an answer.
+            if ($errno === 23 && $code > 0) {
+                $errno = 0;
+            }
+
+            $error = '';
+
+            if ($errno) {
+                $error = (string) curl_error($ch);
+                $error = $error !== '' ? $error : (string) curl_strerror($errno);
+            }
+
+            $answers[$url] = ['url' => $url, 'code' => $code, 'errno' => $errno, 'error' => $error, 'body' => $bodies[$url]];
+
+            curl_multi_remove_handle($multi, $ch);
+            curl_close($ch);
+        }
+
+        curl_multi_close($multi);
+
+        return $answers;
+    }
+
+    /**
+     * What an answer means for a visitor.
+     *
+     * @param   array  $answer
+     * @param   array  &$state
+     *
+     * @return  array  ['kind' => null|'gone'|'404'|'down', 'detail' => string]
+     */
+    protected function classify(array $answer, array &$state)
+    {
+        $errno = (int) $answer['errno'];
+        $code  = (int) $answer['code'];
+
+        if ($errno === 6) {
+            // CURLE_COULDNT_RESOLVE_HOST: the domain does not exist (any
+            // more) - but only if this server can look up names at all,
+            // and the name really has no address (asked once more, apart
+            // from cURL). Otherwise it is this server, not that website.
+            if (!isset($state['dnsOk'])) {
+                $state['dnsOk'] = $this->hasAddress('www.joomla.org') || $this->hasAddress('www.google.com');
+            }
+
+            if (!$state['dnsOk']) {
+                return ['kind' => 'down', 'detail' => Text::_('COM_MEDIACLEANER_LINKS_DNS_SERVER')];
+            }
+
+            $host = $this->hostOf((string) ($answer['url'] ?? ''));
+
+            if ($host !== '' && $this->hasAddress($host)) {
+                return ['kind' => 'down', 'detail' => mb_substr($answer['error'], 0, 250)];
+            }
+
+            return ['kind' => 'gone', 'detail' => 'DNS'];
+        }
+
+        if ($errno !== 0) {
+            return ['kind' => 'down', 'detail' => mb_substr($answer['error'] !== '' ? $answer['error'] : 'cURL ' . $errno, 0, 250)];
+        }
+
+        if ($code === 404 || $code === 410) {
+            return ['kind' => '404', 'detail' => 'HTTP ' . $code];
+        }
+
+        if ($code >= 500 || $code === 0) {
+            return ['kind' => 'down', 'detail' => $code ? 'HTTP ' . $code : ''];
+        }
+
+        // 2xx/3xx, and 401/403/429 etc.: the site is there.
+        return ['kind' => null, 'detail' => 'HTTP ' . $code];
+    }
+
+    /**
+     * Whether a host name has an address in DNS.
+     *
+     * @param   string  $host
+     *
+     * @return  boolean
+     */
+    protected function hasAddress($host)
+    {
+        if (\function_exists('checkdnsrr') && (@checkdnsrr($host, 'A') || @checkdnsrr($host, 'AAAA') || @checkdnsrr($host, 'CNAME'))) {
+            return true;
+        }
+
+        return @gethostbyname($host) !== $host;
+    }
+
+    /**
+     * @param   string  $url
+     *
+     * @return  string
+     */
+    protected function hostOf($url)
+    {
+        return strtolower((string) parse_url($url, PHP_URL_HOST));
+    }
+
+    // ------------------------------------------------------------------
     // Suggestions
     // ------------------------------------------------------------------
 
@@ -1179,8 +1689,52 @@ class LinkChecker
             }
         }
 
+        // External links that do not work (v2.9.2).
+        foreach ($state['ext'] as $link) {
+            $result = $state['urls'][$link['path']] ?? null;
+
+            if (!\is_array($result) || $result['kind'] === null) {
+                continue;
+            }
+
+            $copy        = (string) ($state['archive'][$link['path']] ?? '');
+            $suggestions = $copy !== '' ? [['path' => $copy, 'reason' => 'archive', 'score' => 50]] : [];
+            $hash        = self::hash($link['table_name'], $link['pk_column'], $link['pk_value'], $link['column_name'], $link['url']);
+            $record      = (object) [
+                'hash'           => $hash,
+                'table_name'     => $link['table_name'],
+                'pk_column'      => $link['pk_column'],
+                'pk_value'       => $link['pk_value'],
+                'column_name'    => $link['column_name'],
+                'url'            => mb_substr($link['url'], 0, 2048),
+                'path'           => mb_substr($link['path'], 0, 1024),
+                'base'           => 'ext',
+                'kind'           => 'ext_' . $result['kind'],
+                'detail'         => mb_substr((string) $result['detail'], 0, 255),
+                'element'        => mb_substr($link['element'], 0, 20),
+                'popup'          => (int) $link['popup'],
+                'inner_path'     => mb_substr($link['inner_path'], 0, 1024),
+                'occurrences'    => (int) $link['occurrences'],
+                'location_type'  => $link['location_type'],
+                'location_title' => mb_substr($link['location_title'], 0, 255),
+                'location_url'   => mb_substr($link['location_url'], 0, 512),
+                'item_state'     => $link['item_state'],
+                'suggestions'    => json_encode($suggestions, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                'best'           => -1,
+                'ignored'        => isset($ignored[$hash]) ? 1 : 0,
+                'found_at'       => $now,
+            ];
+
+            $db->insertObject('#__mediacleaner_links', $record);
+
+            if (!$record->ignored) {
+                $count++;
+            }
+        }
+
         StorageLocator::setState('links_checked', $now);
-        StorageLocator::setState('links_checked_full', $state['full'] ? '1' : '0');
+        StorageLocator::setState('links_checked_full', $state['full'] || !empty($state['extFull']) ? '1' : '0');
+        StorageLocator::setState('links_checked_external', !empty($state['external']) ? '1' : '0');
 
         return $count;
     }
@@ -1208,13 +1762,26 @@ class LinkChecker
      */
     protected function status(array $state, $done, $found)
     {
+        if (($state['phase'] ?? 'db') === 'ext' && !$done) {
+            $urls    = max(1, \count($state['urls']));
+            $checked = \count(array_filter($state['urls'], 'is_array'));
+
+            return [
+                'jobId'   => $state['id'],
+                'done'    => false,
+                'percent' => max(50, min(99, 50 + (int) floor(49 * $checked / $urls))),
+                'label'   => Text::sprintf('COM_MEDIACLEANER_LINKS_PROGRESS_EXT', $checked, \count($state['urls'])),
+                'found'   => 0,
+            ];
+        }
+
         $total = max(1, \count($state['targets']));
         $at    = min($state['cursor']['t'], $total);
 
         return [
             'jobId'   => $state['id'],
             'done'    => $done,
-            'percent' => $done ? 100 : max(1, min(99, (int) floor(100 * $at / $total))),
+            'percent' => $done ? 100 : max(1, min(99, (int) floor((empty($state['external']) ? 100 : 50) * $at / $total))),
             'label'   => Text::sprintf('COM_MEDIACLEANER_LINKS_PROGRESS', $at, $total, \count($state['found'])),
             'found'   => $found,
         ];

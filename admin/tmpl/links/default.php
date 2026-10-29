@@ -214,10 +214,19 @@ $open = $this->counts[''];
         <p class="mc-links-explain"><?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_EXPLAIN')); ?></p>
         <p class="mc-links-start">
             <button type="button" class="btn btn-primary" id="mc-links-check"><?php echo $h(Text::_($this->checkedAt === null ? 'COM_MEDIACLEANER_LINKS_CHECK' : 'COM_MEDIACLEANER_LINKS_CHECK_AGAIN')); ?></button>
+            <?php if ($this->canCheckExternal) : ?>
+                <label class="mc-links-external-choice">
+                    <input type="checkbox" id="mc-links-external"<?php echo $this->externalChoice ? ' checked' : ''; ?>>
+                    <?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_EXTERNAL_CHOICE')); ?>
+                </label>
+            <?php endif; ?>
             <?php if ($this->checkedAt !== null) : ?>
                 <span class="mc-compress-hint"><?php echo $h(Text::sprintf('COM_MEDIACLEANER_LINKS_CHECKED', HTMLHelper::_('date', $this->checkedAt, Text::_('DATE_FORMAT_LC5')))); ?></span>
             <?php endif; ?>
         </p>
+        <?php if (!$this->canCheckExternal) : ?>
+            <p class="mc-compress-hint"><?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_EXTERNAL_UNAVAILABLE')); ?></p>
+        <?php endif; ?>
         <?php if ($this->wasCut) : ?>
             <div class="mc-notice"><?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_CUT')); ?></div>
         <?php endif; ?>
@@ -228,7 +237,18 @@ $open = $this->counts[''];
             <?php echo $filterLink('', 'COM_MEDIACLEANER_LINKS_FILTER_ALL', $this->counts['']); ?>
             <?php echo $filterLink('missing', 'COM_MEDIACLEANER_LINKS_FILTER_MISSING', $this->counts['missing']); ?>
             <?php echo $filterLink('outside', 'COM_MEDIACLEANER_LINKS_FILTER_OUTSIDE', $this->counts['outside']); ?>
+            <?php if ($this->checkedExternal || $this->counts['external'] > 0 || $this->filter === 'external') : ?>
+                <?php echo $filterLink('external', 'COM_MEDIACLEANER_LINKS_FILTER_EXTERNAL', $this->counts['external']); ?>
+            <?php endif; ?>
             <?php echo $filterLink('ignored', 'COM_MEDIACLEANER_LINKS_FILTER_IGNORED', $this->counts['ignored']); ?>
+            <?php if (\count($this->sources) > 1 || $this->source !== '') : ?>
+                <select class="form-select form-select-sm mc-links-source" id="mc-links-source" aria-label="<?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_SOURCE_LABEL')); ?>">
+                    <option value=""><?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_SOURCE_ALL')); ?></option>
+                    <?php foreach ($this->sources as $table => $source) : ?>
+                        <option value="<?php echo $h($table); ?>"<?php echo $table === $this->source ? ' selected' : ''; ?>><?php echo $h($source['label'] . ' (' . $source['count'] . ')'); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            <?php endif; ?>
             <?php if ($this->showTrashed || $this->counts['trashed'] > 0) : ?>
                 <a class="mc-links-trashed-toggle" href="<?php echo $h(Route::_($view . '&trashed=' . ($this->showTrashed ? 0 : 1), false)); ?>">
                     <?php echo $h($this->showTrashed ? Text::_('COM_MEDIACLEANER_LINKS_HIDE_TRASHED') : Text::plural('COM_MEDIACLEANER_LINKS_SHOW_TRASHED', $this->counts['trashed'])); ?>
@@ -238,6 +258,8 @@ $open = $this->counts[''];
 
         <?php if ($this->filter === 'outside') : ?>
             <div class="mc-notice"><?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_OUTSIDE_NOTE')); ?></div>
+        <?php elseif ($this->filter === 'external') : ?>
+            <div class="mc-notice"><?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_EXTERNAL_NOTE')); ?></div>
         <?php endif; ?>
 
         <?php if (!$this->list['items']) : ?>
@@ -260,6 +282,12 @@ $open = $this->counts[''];
                         </button>
                     <?php endif; ?>
                     <span class="mc-selected-count"><span id="mc-links-count">0</span> <?php echo $h(Text::_('COM_MEDIACLEANER_SELECTED_SUFFIX')); ?></span>
+                    <?php if ($this->list['total'] > \count($this->list['items'])) : ?>
+                        <label class="mc-select-all-matching-label">
+                            <input type="checkbox" id="mc-links-select-all" name="select_all" value="1" data-total="<?php echo (int) $this->list['total']; ?>">
+                            <?php echo $h(Text::sprintf('COM_MEDIACLEANER_LINKS_SELECT_ALL', (int) $this->list['total'])); ?>
+                        </label>
+                    <?php endif; ?>
                 </div>
 
                 <div class="table-responsive">
@@ -309,6 +337,11 @@ $open = $this->counts[''];
                                             <?php endif; ?>
                                             <?php if ($item['kind'] === 'outside') : ?>
                                                 <a class="mc-links-el" href="<?php echo $h($webRoot . $item['path']); ?>" target="_blank" rel="noopener"><?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_OPEN_OUTSIDE')); ?></a>
+                                            <?php elseif ($item['base'] === 'ext') : ?>
+                                                <?php if (($item['detail'] ?? '') !== '' && $item['detail'] !== 'DNS') : ?>
+                                                    <span class="mc-links-el"><?php echo $h($item['detail']); ?></span>
+                                                <?php endif; ?>
+                                                <a class="mc-links-el" href="<?php echo $h($item['path']); ?>" target="_blank" rel="noopener noreferrer"><?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_OPEN_EXTERNAL')); ?></a>
                                             <?php endif; ?>
                                         </div>
                                     </td>
@@ -321,7 +354,7 @@ $open = $this->counts[''];
                                                 <img class="mc-links-preview" alt="" hidden>
                                             </div>
                                             <input type="text" class="form-control form-control-sm mc-links-custom" name="custom[<?php echo (int) $item['id']; ?>]"
-                                                placeholder="<?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_CUSTOM_PLACEHOLDER')); ?>" hidden>
+                                                placeholder="<?php echo $h(Text::_($item['base'] === 'ext' ? 'COM_MEDIACLEANER_LINKS_CUSTOM_PLACEHOLDER_URL' : 'COM_MEDIACLEANER_LINKS_CUSTOM_PLACEHOLDER')); ?>" hidden>
                                         <?php else : ?>
                                             <span class="mc-compress-hint"><?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_IGNORED_HINT')); ?></span>
                                         <?php endif; ?>
@@ -422,6 +455,16 @@ $open = $this->counts[''];
 
 <script>
     (function () {
+        var source = document.getElementById('mc-links-source');
+
+        if (source) {
+            source.addEventListener('change', function () {
+                window.location.href = <?php echo json_encode(Route::_($view . '&start=0', false)); ?> + '&source=' + encodeURIComponent(source.value);
+            });
+        }
+    })();
+
+    (function () {
         var form = document.getElementById('mc-links-form');
 
         if (!form) {
@@ -434,13 +477,40 @@ $open = $this->counts[''];
         var counter  = document.getElementById('mc-links-count');
         var pick     = document.getElementById('mc-links-pick-suggested');
 
+        var all      = document.getElementById('mc-links-select-all');
+
         function refresh() {
             var n = 0;
 
             checks.forEach(function (c) { if (c.checked) { n++; } });
 
+            if (all && all.checked) {
+                // All rows of this filter, over every page: only ignoring
+                // (or no longer ignoring) works on rows you cannot see.
+                n = parseInt(all.getAttribute('data-total'), 10) || n;
+            }
+
             if (counter) { counter.textContent = n; }
-            bulk.forEach(function (b) { b.disabled = n === 0; });
+            bulk.forEach(function (b) {
+                b.disabled = n === 0 || (all && all.checked && /fixSelected/.test(b.getAttribute('formaction') || ''));
+            });
+        }
+
+        if (all) {
+            all.addEventListener('change', function () {
+                checks.forEach(function (c) { c.checked = all.checked; c.disabled = all.checked; });
+
+                if (checkAll) {
+                    checkAll.checked = all.checked;
+                    checkAll.disabled = all.checked;
+                }
+
+                if (pick) {
+                    pick.disabled = all.checked;
+                }
+
+                refresh();
+            });
         }
 
         checks.forEach(function (c) { c.addEventListener('change', refresh); });
@@ -558,6 +628,12 @@ $open = $this->counts[''];
             body.append('task', 'links.step');
             body.append('job_id', jobId);
             body.append('budget', '8');
+
+            if (jobId === '') {
+                var external = document.getElementById('mc-links-external');
+
+                body.append('external', external && external.checked ? '1' : '0');
+            }
             body.append(tokenName, '1');
 
             fetch(endpoint, {method: 'POST', body: body, credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest'}})

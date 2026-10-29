@@ -15,6 +15,7 @@ use Joomla\CMS\MVC\Controller\BaseController;
 use Joomla\CMS\Router\Route;
 use Joomla\CMS\Session\Session;
 use Joomla\Component\Mediacleaner\Administrator\Service\LinkChecker;
+use Joomla\Component\Mediacleaner\Administrator\Service\StorageLocator;
 
 /**
  * Tasks of the Linkcontrole tab (v2.9.1).
@@ -42,7 +43,12 @@ class LinksController extends BaseController
                 $jobId   = $this->input->getCmd('job_id', '');
 
                 if ($jobId === '') {
-                    $jobId = $checker->start();
+                    // v2.9.2: also links to other websites; the choice is remembered.
+                    $external = $this->input->getInt('external', 0) === 1;
+
+                    StorageLocator::setState('links_external', $external ? '1' : '0');
+
+                    $jobId = $checker->start($external);
                 }
 
                 $payload = $checker->run($jobId, max(2, min(20, $this->input->getInt('budget', 8))));
@@ -192,7 +198,8 @@ class LinksController extends BaseController
     }
 
     /**
-     * Row's own button (one_id) or the checked rows.
+     * Row's own button (one_id), every row of the current filter over all
+     * pages (select_all, v2.9.2), or the checked rows.
      *
      * @return  integer[]
      */
@@ -200,7 +207,24 @@ class LinksController extends BaseController
     {
         $one = $this->input->getInt('one_id', 0);
 
-        return $one > 0 ? [$one] : array_map('intval', $this->input->get('cid', [], 'array'));
+        if ($one > 0) {
+            return [$one];
+        }
+
+        if ($this->input->getInt('select_all', 0) === 1) {
+            $app = Factory::getApplication();
+
+            /** @var \Joomla\Component\Mediacleaner\Administrator\Model\LinksModel $model */
+            $model = $this->getModel('Links');
+
+            return $model->getIdsForFilter(
+                (string) $app->getUserState('com_mediacleaner.links.filter', ''),
+                (int) $app->getUserState('com_mediacleaner.links.trashed', 0) === 1,
+                (string) $app->getUserState('com_mediacleaner.links.source', '')
+            );
+        }
+
+        return array_map('intval', $this->input->get('cid', [], 'array'));
     }
 
     /**

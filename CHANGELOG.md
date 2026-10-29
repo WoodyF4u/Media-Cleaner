@@ -3,6 +3,52 @@
 Elke regel is ook een test die je na installatie kunt aflopen om te
 controleren of een functie daadwerkelijk is meegenomen.
 
+## 2.9.2
+
+- **Linkcontrole: filteren op bron.** Naast de filters staat een keuzelijst
+  **Bron** met waar de verwijzingen vandaan komen: Artikelen, Modules,
+  Menu-items, Templatestijlen, Eigen velden, ... en de tabellen van een
+  extensie onder de naam van die extensie (bijv. **Balboa Gallery**). De
+  naam wordt algemeen opgezocht: een tabel `#__gallery_items` hoort bij de
+  geïnstalleerde component `com_gallery`. Een tabel van een extensie die
+  niet (meer) geïnstalleerd is, heet "Tabel #__...". De tellers bij de
+  filters gaan mee met de gekozen bron.
+- **Selecteer alle (alle pagina's) - om te negeren.** Staan er meer
+  verwijzingen dan op één pagina passen, dan selecteert dit vinkje alles
+  van het huidige filter en de huidige bron, over alle pagina's; daarmee
+  negeer je bijvoorbeeld alle verwijzingen van Balboa Gallery in één keer
+  (en bij Genegeerd zet je ze zo in één keer terug). Repareren werkt
+  alleen op de regels die je ziet, omdat elke regel zijn eigen keuze heeft.
+- **Links naar andere websites controleren.** Vink naast **Links
+  controleren** "Ook links naar andere websites controleren" aan (de keuze
+  wordt onthouden). Elk extern adres in HTML (links, afbeeldingen,
+  iframes, ...) en in de inhoud (menu-item van het type URL, links bij een
+  artikel, eigen velden) wordt één keer opgevraagd, tien tegelijk, in
+  korte stappen met een voortgangsbalk. Webadressen in instellingen van
+  extensies (auteurssite, updateserver) tellen niet mee.
+  - Nieuw filter **Externe links**, met drie soorten: **Website bestaat
+    niet meer** (het domein is onbekend), **Pagina bestaat niet meer**
+    (404/410) en **Niet bereikbaar (kan tijdelijk zijn)** (geen verbinding,
+    time-out, certificaatfout of serverfout - pas na een tweede poging).
+    Het antwoord (bijv. "HTTP 404") staat erbij, met een knop **Adres
+    openen**.
+  - Een website die bestaat maar robots weigert (401, 403, 429) telt als
+    werkend. Kan de server zelf geen domeinnamen opzoeken, dan wordt niets
+    als "bestaat niet meer" gemeld, maar als niet bereikbaar met die
+    uitleg. Een domein zonder adres wordt los van cURL nog eens
+    nagevraagd.
+  - Voor een pagina die niet meer bestaat, wordt het internetarchief
+    (web.archive.org) om een bewaarde kopie gevraagd; die staat dan als
+    voorstel in de keuzelijst ("bewaarde kopie in het internetarchief").
+  - Oplossingen: naar de archiefkopie laten wijzen, de link weghalen en de
+    tekst laten staan, de afbeelding weghalen, of zelf een nieuw adres
+    (`https://...`) of een bestand van de site invullen. Ook bij een
+    ontbrekend bestand kun je nu een webadres invullen. Alles is weer
+    ongedaan te maken.
+- De paginatitel heet nu "Linkcontrole: doodlopende verwijzingen".
+- `#__mediacleaner_links` kreeg de kolom `detail` en de index `idx_table`
+  (`2.9.2.sql`, alleen toevoegen).
+
 ## 2.9.1
 
 - **Nieuw tabblad Linkcontrole.** Naast Opruimen en Verkleinen (ook als

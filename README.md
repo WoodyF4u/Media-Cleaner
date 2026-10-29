@@ -161,6 +161,13 @@ keep the small photo, remove the image, or enter a path yourself - per
 row or for a selection at once. Every repair is listed under
 **Repaired** and can be undone there.
 
+From 2.9.2 the list can be narrowed to one **source** (articles, modules,
+or the tables of one extension such as Balboa Gallery) and everything from
+that source ignored in one go. With **Also check links to other websites**
+every external address is requested too: you see which websites or pages
+no longer exist, with a saved copy from the Internet Archive as a
+suggestion.
+
 ## Requirements
 
 - Joomla 6.x

@@ -260,6 +260,7 @@ CREATE TABLE IF NOT EXISTS `#__mediacleaner_links` (
     `path` VARCHAR(1024) NOT NULL,
     `base` VARCHAR(10) NOT NULL DEFAULT 'site',
     `kind` VARCHAR(20) NOT NULL,
+    `detail` VARCHAR(255) NOT NULL DEFAULT '',
     `element` VARCHAR(20) NOT NULL DEFAULT '',
     `popup` TINYINT(1) NOT NULL DEFAULT 0,
     `inner_path` VARCHAR(1024) NOT NULL DEFAULT '',
@@ -274,7 +275,8 @@ CREATE TABLE IF NOT EXISTS `#__mediacleaner_links` (
     `found_at` DATETIME NOT NULL,
     PRIMARY KEY (`id`),
     KEY `idx_hash` (`hash`),
-    KEY `idx_list` (`ignored`, `kind`)
+    KEY `idx_list` (`ignored`, `kind`),
+    KEY `idx_table` (`table_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `#__mediacleaner_links_ignored` (
