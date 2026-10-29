@@ -8,3 +8,6 @@ DROP TABLE IF EXISTS `#__mediacleaner_state`;
 DROP TABLE IF EXISTS `#__mediacleaner_compress`;
 DROP TABLE IF EXISTS `#__mediacleaner_compress_refs`;
 DROP TABLE IF EXISTS `#__mediacleaner_duplicates`;
+DROP TABLE IF EXISTS `#__mediacleaner_links`;
+DROP TABLE IF EXISTS `#__mediacleaner_links_ignored`;
+DROP TABLE IF EXISTS `#__mediacleaner_link_fixes`;

@@ -13,15 +13,16 @@ use Joomla\CMS\Language\Text;
 use Joomla\CMS\Router\Route;
 
 /**
- * The two tabs at the top of Media Cleaner (v2.9.0): "Opruimen" (the
- * scanned files - linked or not) and "Verkleinen" (making media files
- * smaller). Each tab is its own view with its own toolbar; this only
- * draws the tab row so both look the same.
+ * The tabs at the top of Media Cleaner: "Opruimen" (the scanned files -
+ * linked or not) and "Verkleinen" (making media files smaller), both
+ * v2.9.0, and "Linkcontrole" (links to files that do not exist, v2.9.1).
+ * Each tab is its own view with its own toolbar; this only draws the tab
+ * row so they all look the same.
  */
 abstract class TabsHelper
 {
     /**
-     * @param   string  $active  'files' or 'compress'
+     * @param   string  $active  'files', 'compress' or 'links'
      *
      * @return  string
      */
@@ -30,6 +31,7 @@ abstract class TabsHelper
         $tabs = [
             'files'    => 'COM_MEDIACLEANER_TAB_CLEANUP',
             'compress' => 'COM_MEDIACLEANER_TAB_COMPRESS',
+            'links'    => 'COM_MEDIACLEANER_TAB_LINKS',
         ];
 
         $html = '<ul class="nav nav-tabs mc-tabs" role="tablist">';
