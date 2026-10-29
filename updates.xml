@@ -13,7 +13,7 @@
         <tags>
             <tag>stable</tag>
         </tags>
-        <sha256>ab7be373d898c245e5f722fbb22a00f216915eb3764319556fce9833e9a0be22</sha256>
+        <sha256>2168f28f88d8d26e2f37e8aa884d4d403a1bcfc48e83f030c7e8b3ca64d0eda0</sha256>
         <maintainer>Wouter (WoodyF4u)</maintainer>
         <maintainerurl>https://github.com/WoodyF4u/Media-Cleaner</maintainerurl>
         <targetplatform name="joomla" version="6.[0-9]+"/>
