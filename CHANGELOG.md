@@ -3,6 +3,76 @@
 Elke regel is ook een test die je na installatie kunt aflopen om te
 controleren of een functie daadwerkelijk is meegenomen.
 
+## 2.9.1
+
+- **Nieuw tabblad Linkcontrole.** Naast Opruimen en Verkleinen (ook als
+  submenu onder Componenten → Media Cleaner). Knop **Links controleren**
+  doorzoekt de hele database - artikelen (ook het veld met de intro- en
+  artikelafbeelding), modules, menu's, categorieën, eigen velden,
+  templatestijlen en tabellen van extensies - in korte stappen met een
+  voortgangsbalk, en toont elke verwijzing naar een bestand van de site
+  dat niet bestaat.
+  - Herkend: `src`, `href`, `poster` en `data-...`-attributen, CSS
+    `url(...)`, Joomla's mediaveld (`#joomlaImage://...`), paden in JSON
+    (`images\/a.jpg`) en in geserialiseerde instellingen, relatieve paden,
+    paden met het basispad van de site (`/000/images/...`) en met het
+    eigen adres (`https://site.nl/images/...`), URL-gecodeerd (`%20`).
+  - Niet gemeld: externe sites, `index.php`-links, links naar pagina's
+    (`nieuws/artikel`), placeholders zoals `{loadposition ...}`, en
+    buiten HTML alles wat geen mediabestand is (mapinstellingen zoals
+    `images/videos`, interne XML-paden).
+  - Twee soorten: **Bestand ontbreekt**, en **Buiten deze site**: de site
+    staat in een submap en de link (`/images/...`) wijst naar de hoofdmap
+    van het domein, waar het bestand toevallig wel staat. Werkt nu, loopt
+    dood zodra de site verhuist. Met een uitleg bij dat filter.
+  - Per verwijzing: waar hij staat (titel, soort, niet gepubliceerd /
+    gearchiveerd, knop Bewerken), wat het is (afbeelding, pop-uplink,
+    link, achtergrond, veld), hoe vaak hij in dat item voorkomt, en bij
+    een pop-uplink de kleine foto als voorbeeld. Items in de prullenbak
+    staan standaard verborgen ("Ook ... in de prullenbak tonen").
+  - Boven elke groep staat wat het is, vóór de titel: "Artikel: Dinsdag
+    23 september", "Module: Contact", "Menu-item: ...", "Templatestijl:
+    ...". Zo lijkt een titel die een datum is nooit de datum van een
+    controle. Hetzelfde in de lijst Gerepareerd.
+  - Bladeren zoals in Joomla's eigen lijsten: eerste, vorige, tot tien
+    paginanummers rond de huidige pagina, volgende, laatste - in de lijst
+    en onder Gerepareerd.
+- **Repareren vanuit de lijst.** Per regel een keuzelijst met oplossingen
+  en een knop **Repareren**; of vink regels aan en kies **Geselecteerde
+  repareren** (elke regel met zijn eigen keuze; "Selecteer alle met een
+  oplossing" vinkt alle regels aan waar er een gekozen is).
+  - Voorstellen (laten wijzen naar): andere hoofdletters, ontbrekende
+    punt (`15-8jpg` → `15-8.jpg`), zelfde naam met andere extensie (PNG →
+    JPG omgezet), identiek bestand in deze site (bij Buiten deze site),
+    zelfde pad binnen deze site, zelfde naam in een andere map (met de
+    map die het meest lijkt bovenaan), de kleine foto uit de pop-uplink.
+    Alleen een voorstel dat vrijwel zeker klopt, staat al gekozen; de
+    rest kies je zelf. Een voorbeeld van de gekozen afbeelding staat
+    ernaast.
+  - Verder: **Bestand naar deze site kopiëren** (Buiten deze site),
+    **Pop-uplink weghalen, kleine foto laten staan**, **Afbeelding
+    weghalen**, **Zelf een pad invullen** (moet een bestaand bestand van
+    de site zijn; `/000/...` of het volledige adres mag ook).
+  - De reparatie houdt de schrijfwijze aan: relatief blijft relatief,
+    `/000/...` en het volledige adres blijven, `%20` blijft `%20`, JSON
+    blijft JSON (met `\/` en `\u00e9` zoals het stond), geserialiseerde
+    waarden krijgen de juiste lengtes, `?width=...` en
+    `#joomlaImage://local-...` wijzen mee naar het nieuwe bestand. Een
+    link Buiten deze site wordt relatief, zodat hij binnen de site wijst.
+  - Opgeslagen wordt alleen als de waarde nog precies is zoals gelezen;
+    is het item intussen bewerkt, dan volgt een melding.
+- **Negeren.** Per regel of voor een selectie; een genegeerde verwijzing
+  blijft genegeerd bij een nieuwe controle (filter **Genegeerd**, met
+  **Niet meer negeren**).
+- **Ongedaan maken.** Onder **Gerepareerd** staat elke reparatie (waar,
+  van → naar, wanneer) met een knop **Ongedaan maken**. Is het item
+  sindsdien bewerkt, dan wordt alleen de link zelf teruggezet; lukt dat
+  niet veilig (bij weggehaalde links of afbeeldingen), dan blijft alles
+  staan met een melding. Na ongedaan maken staat de verwijzing meteen
+  weer in de lijst. Een gekopieerd bestand blijft staan.
+- Nieuwe tabellen `#__mediacleaner_links`, `#__mediacleaner_links_ignored`
+  en `#__mediacleaner_link_fixes` (`2.9.1.sql`, alleen toevoegen).
+
 ## 2.9.0
 
 - **Twee tabbladen: Opruimen en Verkleinen.** Bovenaan Media Cleaner staan

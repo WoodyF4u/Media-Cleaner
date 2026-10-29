@@ -145,6 +145,22 @@ otherwise in `mediacleaner/` in the Joomla root, shielded by
 `.htaccess`, `web.config` and `index.html` with fixed contents. A folder
 of your own can be set in Options, Compress tab.
 
+## The Link check tab (from 2.9.1)
+
+Searches the whole database for references to files of the site that do
+not exist: a photo that was never uploaded, a pop-up link (JCE MediaBox)
+to a large photo that is missing, a typo such as `photo-1jpg`, a path
+with the wrong case. When the site lives in a subfolder, links starting
+with `/` that point at the domain root are listed separately (**Outside
+this site**): they still work, but only thanks to another site.
+
+For each reference you see where it is (with an **Edit** button) and
+choose a repair: point it at an existing file (Media Cleaner makes
+suggestions), copy the file into this site, remove the pop-up link and
+keep the small photo, remove the image, or enter a path yourself - per
+row or for a selection at once. Every repair is listed under
+**Repaired** and can be undone there.
+
 ## Requirements
 
 - Joomla 6.x

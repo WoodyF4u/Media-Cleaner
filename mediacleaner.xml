@@ -3,10 +3,10 @@
     <name>COM_MEDIACLEANER</name>
     <element>com_mediacleaner</element>
     <author>Wouter (WoodyF4u)</author>
-    <creationDate>25 October 2026</creationDate>
+    <creationDate>29 October 2026</creationDate>
     <copyright>Copyright (C) 2026</copyright>
     <license>GNU General Public License version 2 or later; see LICENSE.txt</license>
-    <version>2.9.0</version>
+    <version>2.9.1</version>
     <description>COM_MEDIACLEANER_XML_DESCRIPTION</description>
 
     <namespace path="src">Joomla\Component\Mediacleaner</namespace>
@@ -70,10 +70,11 @@
 
     <administration>
         <menu img="class:mediacleaner" link="index.php?option=com_mediacleaner&amp;view=files">COM_MEDIACLEANER</menu>
-        <!-- v2.9.0: the two tabs, also reachable from the admin menu. -->
+        <!-- The tabs (v2.9.0, Linkcontrole v2.9.1), also reachable from the admin menu. -->
         <submenu>
             <menu link="option=com_mediacleaner&amp;view=files">COM_MEDIACLEANER_SUBMENU_CLEANUP</menu>
             <menu link="option=com_mediacleaner&amp;view=compress">COM_MEDIACLEANER_SUBMENU_COMPRESS</menu>
+            <menu link="option=com_mediacleaner&amp;view=links">COM_MEDIACLEANER_SUBMENU_LINKS</menu>
         </submenu>
 
         <files folder="admin">

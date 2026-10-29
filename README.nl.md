@@ -159,6 +159,23 @@ webroot), anders in `mediacleaner/` in de Joomla-hoofdmap, afgeschermd
 met `.htaccess`, `web.config` en `index.html` met vaste inhoud. Een eigen
 map stel je in bij Opties, tabblad Verkleinen.
 
+## Het tabblad Linkcontrole (vanaf 2.9.1)
+
+Zoekt in de hele database naar verwijzingen naar bestanden van de site
+die niet bestaan: een foto die nooit is geüpload, een pop-uplink (JCE
+MediaBox) naar een grote foto die ontbreekt, een tikfout zoals
+`foto-1jpg`, een pad met verkeerde hoofdletters. Staat de site in een
+submap, dan worden links die met `/` beginnen en naar de hoofdmap van het
+domein wijzen apart getoond (**Buiten deze site**): ze werken nu nog,
+maar alleen dankzij een andere site.
+
+Per verwijzing zie je waar hij staat (met een knop **Bewerken**) en kies
+je een oplossing: laten wijzen naar een bestaand bestand (Media Cleaner
+doet voorstellen), het bestand naar deze site kopiëren, de pop-uplink
+weghalen en de kleine foto laten staan, de afbeelding weghalen, of zelf
+een pad invullen. Per regel of voor een selectie in één keer. Elke
+reparatie staat onder **Gerepareerd** en is daar ongedaan te maken.
+
 ## Vereisten
 
 - Joomla 6.x
