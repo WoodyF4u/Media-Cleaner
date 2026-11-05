@@ -50,6 +50,9 @@ class HtmlView extends BaseHtmlView
     /** @var boolean  Checkbox "also external links" (remembered). */
     protected $externalChoice = false;
 
+    /** @var boolean  Checkbox "also tables of extensions" (remembered, v2.9.2). */
+    protected $extensionsChoice = false;
+
     /** @var boolean  The last check included external links. */
     protected $checkedExternal = false;
 
@@ -116,6 +119,7 @@ class HtmlView extends BaseHtmlView
         $this->list      = $model->getItems($this->filter, $this->showTrashed, $this->start, $this->limit, $this->source);
 
         $this->externalChoice   = StorageLocator::getState('links_external', '0') === '1';
+        $this->extensionsChoice = StorageLocator::getState('links_extensions', '0') === '1';
         $this->checkedExternal  = $model->checkedExternal();
         $this->canCheckExternal = LinkChecker::canCheckExternal();
 

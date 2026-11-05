@@ -998,3 +998,27 @@ input[type="checkbox"].form-check-input:checked::after {
 .mc-links-kind-ext_down {
     background: #7f8c8d;
 }
+
+/* Linkcontrole: one repair for the whole selection, and what will happen (v2.9.2) */
+.mc-links-bulk-choice-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+}
+.mc-links-bulk-choice-label select {
+    width: auto;
+}
+.mc-links-plan {
+    margin: 0 0 12px;
+    padding: 8px 12px;
+    border-left: 4px solid #27ae60;
+    background: var(--bs-tertiary-bg, #f4f6f7);
+    font-size: 13px;
+}
+.mc-links-nofit td {
+    background: #fdf2e9;
+}
+[data-bs-theme="dark"] .mc-links-nofit td {
+    background: #4a3520;
+}

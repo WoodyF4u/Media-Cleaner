@@ -984,6 +984,11 @@ $extensionFilterOptions = function () {
                 .replace(/([?&])mc_auto_rescan=1&?/, '$1')
                 .replace(/[?&]$/, '');
 
+            // v2.9.2: started from the Verkleinen tab - back there when done.
+            if (/[?&]mc_return=compress(&|$)/.test(window.location.search)) {
+                doneUrl = <?php echo json_encode(Route::_('index.php?option=com_mediacleaner&view=compress', false)); ?>;
+            }
+
             showOverlay();
             step();
         }

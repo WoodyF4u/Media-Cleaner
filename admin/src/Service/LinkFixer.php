@@ -25,7 +25,12 @@ use Joomla\CMS\Factory;
  *   'remove'  remove a broken image (and the pop-up link around it, when
  *             the image was all that link held);
  *   'url'     (v2.9.2) point the link at a web address - a saved copy at
- *             the Internet Archive, or an address typed in by the user.
+ *             the Internet Archive, or an address typed in by the user;
+ *   'clear'   (v2.9.2) empty a field that holds only the link (a banner's
+ *             click URL, a menu item's address, ...);
+ *   'trash'   (v2.9.2) move the banner the link belongs to to Joomla's
+ *             trash - for an advertiser that no longer exists. Emptied
+ *             for good (or restored) in Componenten - Banners, as always.
  *
  * Only the reference as it was found is touched, with the same rules as
  * elsewhere in this component: the value is taken apart first when it is
@@ -118,6 +123,10 @@ class LinkFixer
     {
         $copied = '';
 
+        if ($action === 'trash') {
+            return $this->trashBanner($link);
+        }
+
         if ($action === 'copy') {
             $result = $this->copyIn($link);
 
@@ -149,6 +158,10 @@ class LinkFixer
             return ['ok' => false, 'error' => 'NOT_POSSIBLE'];
         }
 
+        if ($action === 'clear' && $link['element'] !== 'value') {
+            return ['ok' => false, 'error' => 'NOT_POSSIBLE'];
+        }
+
         $raw    = (string) $link['url'];
         $newRaw = '';
 
@@ -157,6 +170,10 @@ class LinkFixer
         } elseif ($action === 'url') {
             // In HTML "&" is written "&amp;"; keep to how the link was written.
             $newRaw = preg_match('~&(?:amp|#0?38);~i', $raw) ? str_replace('&', '&amp;', self::normaliseUrl($target)) : self::normaliseUrl($target);
+            $action = 'path';
+            $target = '';
+        } elseif ($action === 'clear') {
+            // The field held only this link: it becomes empty.
             $action = 'path';
             $target = '';
         }
@@ -221,6 +238,100 @@ class LinkFixer
     }
 
     /**
+     * 'trash': the banner a link belongs to goes to Joomla's trash (state
+     * -2), the same as Trash in Componenten - Banners. The old state is
+     * kept, so "Ongedaan maken" puts the banner back exactly as it was.
+     *
+     * @param   array  $link
+     *
+     * @return  array  ['ok' => bool, 'error' => string]
+     */
+    protected function trashBanner(array $link)
+    {
+        $db = $this->db;
+
+        if (substr($link['table_name'], \strlen($db->getPrefix())) !== 'banners' || $link['pk_column'] !== 'id') {
+            return ['ok' => false, 'error' => 'NOT_POSSIBLE'];
+        }
+
+        $where = ['table_name' => $link['table_name'], 'pk_column' => 'id', 'pk_value' => $link['pk_value'], 'column_name' => 'state'];
+
+        try {
+            $state = $db->setQuery(
+                $db->getQuery(true)
+                    ->select($db->quoteName('state'))
+                    ->from($db->quoteName($link['table_name']))
+                    ->where($db->quoteName('id') . ' = ' . (int) $link['pk_value'])
+            )->loadResult();
+        } catch (\Throwable $e) {
+            $state = null;
+        }
+
+        if ($state === null) {
+            return ['ok' => false, 'error' => 'GONE'];
+        }
+
+        if ((int) $state !== -2 && !$this->write($where, (string) $state, '-2')) {
+            return ['ok' => false, 'error' => 'ERROR'];
+        }
+
+        $entry = $link;
+        unset($entry['id']);
+
+        $record = (object) [
+            'link_hash'      => $link['hash'],
+            'table_name'     => $link['table_name'],
+            'pk_column'      => 'id',
+            'pk_value'       => $link['pk_value'],
+            'column_name'    => 'state',
+            'url'            => (string) $link['url'],
+            'new_url'        => '',
+            'action'         => 'trash',
+            'target_path'    => '',
+            'copied_file'    => '',
+            'old_value'      => json_encode([(string) $state]),
+            'new_value'      => json_encode(['-2']),
+            'entry'          => json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+            'location_title' => (string) $link['location_title'],
+            'created'        => Factory::getDate()->toSql(),
+            'created_by'     => (int) Factory::getApplication()->getIdentity()->id,
+        ];
+
+        $db->insertObject('#__mediacleaner_link_fixes', $record);
+
+        $db->setQuery(
+            $db->getQuery(true)
+                ->delete($db->quoteName('#__mediacleaner_links'))
+                ->where($db->quoteName('id') . ' = ' . (int) $link['id'])
+        )->execute();
+
+        // Other links of the same banner: now in the trash too (hidden).
+        $this->setItemState($link['table_name'], $link['pk_value'], -2);
+
+        return ['ok' => true, 'error' => ''];
+    }
+
+    /**
+     * @param   string   $table
+     * @param   string   $pkValue
+     * @param   integer  $state
+     *
+     * @return  void
+     */
+    protected function setItemState($table, $pkValue, $state)
+    {
+        $db = $this->db;
+
+        $db->setQuery(
+            $db->getQuery(true)
+                ->update($db->quoteName('#__mediacleaner_links'))
+                ->set($db->quoteName('item_state') . ' = ' . (int) $state)
+                ->where($db->quoteName('table_name') . ' = ' . $db->quote($table))
+                ->where($db->quoteName('pk_value') . ' = ' . $db->quote($pkValue))
+        )->execute();
+    }
+
+    /**
      * Put a repair back.
      *
      * @param   array  $fix  Row of `#__mediacleaner_link_fixes`.
@@ -273,6 +384,11 @@ class LinkFixer
                 ->set($db->quoteName('undone') . ' = ' . $db->quote(Factory::getDate()->toSql()))
                 ->where($db->quoteName('id') . ' = ' . (int) $fix['id'])
         )->execute();
+
+        // A banner taken out of the trash again: its other links show again.
+        if (($fix['action'] ?? '') === 'trash') {
+            $this->setItemState($fix['table_name'], $fix['pk_value'], (int) $old[0]);
+        }
 
         // The broken link is back: show it in the list again straight away.
         $exists = (int) $db->setQuery(

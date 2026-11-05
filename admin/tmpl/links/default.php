@@ -111,7 +111,7 @@ $options = function (array $item) use ($h, $root, $isImage) {
 
         foreach ($item['suggestions'] as $i => $s) {
             $value = 's' . $i;
-            $html .= '<option value="' . $value . '"' . ($selected === $value ? ' selected' : '')
+            $html .= '<option value="' . $value . '" data-reason="' . $h($s['reason']) . '"' . ($selected === $value ? ' selected' : '') . ((int) $item['best'] === $i ? ' data-best="1"' : '')
                 . ($isImage($s['path']) ? ' data-preview="' . $h($root . $s['path']) . '"' : '') . '>'
                 . $h(Text::sprintf('COM_MEDIACLEANER_LINKS_REASON_' . strtoupper($s['reason']), $s['path']))
                 . '</option>';
@@ -132,6 +132,16 @@ $options = function (array $item) use ($h, $root, $isImage) {
 
     if ($item['element'] === 'img') {
         $html .= '<option value="remove">' . $h(Text::_('COM_MEDIACLEANER_LINKS_DO_REMOVE')) . '</option>';
+    }
+
+    // v2.9.2: a field holding only the link (banner click URL, ...).
+    if ($item['element'] === 'value') {
+        $html .= '<option value="clear">' . $h(Text::_('COM_MEDIACLEANER_LINKS_DO_CLEAR')) . '</option>';
+    }
+
+    // v2.9.2: an advertiser that no longer exists - the banner itself away.
+    if (($item['location_type'] ?? '') === 'banner' && $item['pk_column'] === 'id') {
+        $html .= '<option value="trash">' . $h(Text::_('COM_MEDIACLEANER_LINKS_DO_TRASH_BANNER')) . '</option>';
     }
 
     $html .= '<option value="custom">' . $h(Text::_('COM_MEDIACLEANER_LINKS_DO_CUSTOM')) . '</option>';
@@ -214,6 +224,10 @@ $open = $this->counts[''];
         <p class="mc-links-explain"><?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_EXPLAIN')); ?></p>
         <p class="mc-links-start">
             <button type="button" class="btn btn-primary" id="mc-links-check"><?php echo $h(Text::_($this->checkedAt === null ? 'COM_MEDIACLEANER_LINKS_CHECK' : 'COM_MEDIACLEANER_LINKS_CHECK_AGAIN')); ?></button>
+            <label class="mc-links-external-choice">
+                <input type="checkbox" id="mc-links-extensions"<?php echo $this->extensionsChoice ? ' checked' : ''; ?>>
+                <?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_EXTENSIONS_CHOICE')); ?>
+            </label>
             <?php if ($this->canCheckExternal) : ?>
                 <label class="mc-links-external-choice">
                     <input type="checkbox" id="mc-links-external"<?php echo $this->externalChoice ? ' checked' : ''; ?>>
@@ -268,14 +282,21 @@ $open = $this->counts[''];
             <form action="<?php echo $h($action); ?>" method="post" id="mc-links-form">
                 <div class="mc-actions-bar">
                     <?php if ($this->filter !== 'ignored') : ?>
-                        <button type="submit" class="mc-btn mc-btn-restore mc-links-bulk" formaction="<?php echo $h($task('fixSelected')); ?>" disabled
-                            onclick="return confirm(<?php echo $h(json_encode(Text::_('COM_MEDIACLEANER_LINKS_FIX_CONFIRM'))); ?>);">
+                        <button type="submit" class="mc-btn mc-btn-restore mc-links-bulk" id="mc-links-fix-selected" formaction="<?php echo $h($task('fixSelected')); ?>" disabled>
                             <?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_FIX_SELECTED')); ?>
                         </button>
                         <button type="submit" class="mc-btn mc-btn-bulk-ignore mc-links-bulk" formaction="<?php echo $h($task('ignore')); ?>" disabled>
                             <?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_IGNORE')); ?>
                         </button>
                         <button type="button" class="mc-btn" id="mc-links-pick-suggested"><?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_PICK_SUGGESTED')); ?></button>
+                        <label class="mc-links-bulk-choice-label">
+                            <?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_BULK_CHOICE')); ?>
+                            <select class="form-select form-select-sm" id="mc-links-bulk-choice">
+                                <?php foreach (['' => 'OWN', 'best' => 'BEST', 'archive' => 'ARCHIVE', 'unwrap' => 'UNWRAP', 'remove' => 'REMOVE', 'clear' => 'CLEAR', 'trash' => 'TRASH'] as $value => $key) : ?>
+                                    <option value="<?php echo $h($value); ?>"><?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_BULK_CHOICE_' . $key)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </label>
                     <?php else : ?>
                         <button type="submit" class="mc-btn mc-btn-bulk-unignore mc-links-bulk" formaction="<?php echo $h($task('unignore')); ?>" disabled>
                             <?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_UNIGNORE')); ?>
@@ -289,6 +310,8 @@ $open = $this->counts[''];
                         </label>
                     <?php endif; ?>
                 </div>
+
+                <p class="mc-links-plan" id="mc-links-plan" hidden></p>
 
                 <div class="table-responsive">
                     <table class="table mc-links-table">
@@ -418,6 +441,10 @@ $open = $this->counts[''];
                                                 <?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_DID_UNWRAP')); ?>
                                             <?php elseif ($fix['action'] === 'remove') : ?>
                                                 <?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_DID_REMOVE')); ?>
+                                            <?php elseif ($fix['action'] === 'clear') : ?>
+                                                <?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_DID_CLEAR')); ?>
+                                            <?php elseif ($fix['action'] === 'trash') : ?>
+                                                <?php echo $h(Text::_('COM_MEDIACLEANER_LINKS_DID_TRASH_BANNER')); ?>
                                             <?php else : ?>
                                                 <code><?php echo $h($fix['new_url']); ?></code>
                                                 <?php if ($fix['action'] === 'copy') : ?>
@@ -478,6 +505,151 @@ $open = $this->counts[''];
         var pick     = document.getElementById('mc-links-pick-suggested');
 
         var all      = document.getElementById('mc-links-select-all');
+        var bulkPick = document.getElementById('mc-links-bulk-choice');
+        var planBox  = document.getElementById('mc-links-plan');
+        var fixSel   = document.getElementById('mc-links-fix-selected');
+        var words    = <?php echo json_encode([
+            'plan'    => Text::_('COM_MEDIACLEANER_LINKS_PLAN'),
+            'skip'    => Text::_('COM_MEDIACLEANER_LINKS_PLAN_SKIP'),
+            'nofit'   => Text::_('COM_MEDIACLEANER_LINKS_PLAN_NOFIT'),
+            'point'   => Text::_('COM_MEDIACLEANER_LINKS_PLAN_POINT'),
+            'archive' => Text::_('COM_MEDIACLEANER_LINKS_PLAN_ARCHIVE'),
+            'custom'  => Text::_('COM_MEDIACLEANER_LINKS_PLAN_CUSTOM'),
+            'confirm' => Text::_('COM_MEDIACLEANER_LINKS_PLAN_CONFIRM'),
+        ]); ?>;
+
+        // What "Geselecteerde repareren" will do: every checked row with
+        // the repair chosen in that row - counted per kind of repair, so
+        // nothing happens that you have not seen first.
+        function plan() {
+            var groups = {}, order = [], total = 0, nofit = 0;
+
+            form.querySelectorAll('.mc-links-row').forEach(function (row) {
+                var check  = row.querySelector('.mc-links-check');
+                var select = row.querySelector('.mc-links-choice');
+
+                if (!check || !check.checked || !select) {
+                    return;
+                }
+
+                var option = select.options[select.selectedIndex];
+                var label;
+
+                total++;
+
+                if (row.classList.contains('mc-links-nofit')) {
+                    nofit++;
+                }
+
+                if (!option || select.value === '') {
+                    label = words.skip;
+                } else if (select.value === 'custom') {
+                    label = words.custom;
+                } else if (option.getAttribute('data-reason') === 'archive') {
+                    label = words.archive;
+                } else if (option.getAttribute('data-reason')) {
+                    label = words.point;
+                } else {
+                    label = option.text;
+                }
+
+                if (!groups[label]) {
+                    groups[label] = 0;
+                    order.push(label);
+                }
+
+                groups[label]++;
+            });
+
+            if (!planBox) {
+                return '';
+            }
+
+            if (total === 0 || (all && all.checked)) {
+                planBox.hidden = true;
+
+                return '';
+            }
+
+            var parts = order.map(function (label) { return groups[label] + ' × ' + label; });
+            var text  = words.plan.replace('%d', total) + ' ' + parts.join(' · ');
+
+            if (nofit > 0) {
+                text += ' ' + words.nofit.replace('%d', nofit);
+            }
+
+            planBox.textContent = text;
+            planBox.hidden = false;
+
+            return text;
+        }
+
+        // "Oplossing voor de selectie": set that repair in every checked
+        // row that offers it. Rows that do not keep their own choice and
+        // are marked, so you can see which ones.
+        function applyBulk(only) {
+            if (!bulkPick) {
+                return;
+            }
+
+            var wanted = bulkPick.value;
+
+            (only ? [only] : form.querySelectorAll('.mc-links-row')).forEach(function (row) {
+                var check  = row.querySelector('.mc-links-check');
+                var select = row.querySelector('.mc-links-choice');
+
+                row.classList.remove('mc-links-nofit');
+
+                if (!check || !select) {
+                    return;
+                }
+
+                // Back to the row's own choice first (preselected, or what
+                // was picked in the row itself) - also when unchecked.
+                if (select.value !== select.dataset.own) {
+                    select.value = select.dataset.own;
+                    select.dispatchEvent(new Event('change'));
+                }
+
+                if (!check.checked || wanted === '') {
+                    return;
+                }
+
+                var option = null;
+
+                if (wanted === 'best') {
+                    option = select.querySelector('option[data-best]');
+                } else if (wanted === 'archive') {
+                    option = select.querySelector('option[data-reason="archive"]');
+                } else {
+                    option = select.querySelector('option[value="' + wanted + '"]');
+                }
+
+                if (option) {
+                    select.value = option.value;
+                    select.dispatchEvent(new Event('change'));
+                } else {
+                    row.classList.add('mc-links-nofit');
+                }
+            });
+        }
+
+        if (bulkPick) {
+            bulkPick.addEventListener('change', function () {
+                applyBulk();
+                plan();
+            });
+        }
+
+        if (fixSel) {
+            fixSel.addEventListener('click', function (event) {
+                var text = plan();
+
+                if (!window.confirm((text !== '' ? text + '\n\n' : '') + words.confirm)) {
+                    event.preventDefault();
+                }
+            });
+        }
 
         function refresh() {
             var n = 0;
@@ -491,6 +663,7 @@ $open = $this->counts[''];
             }
 
             if (counter) { counter.textContent = n; }
+            plan();
             bulk.forEach(function (b) {
                 b.disabled = n === 0 || (all && all.checked && /fixSelected/.test(b.getAttribute('formaction') || ''));
             });
@@ -513,11 +686,19 @@ $open = $this->counts[''];
             });
         }
 
-        checks.forEach(function (c) { c.addEventListener('change', refresh); });
+        // A row checked later gets the repair chosen for the selection too;
+        // a choice made in a row itself is left alone otherwise.
+        checks.forEach(function (c) {
+            c.addEventListener('change', function () {
+                applyBulk(c.closest('.mc-links-row'));
+                refresh();
+            });
+        });
 
         if (checkAll) {
             checkAll.addEventListener('change', function () {
                 checks.forEach(function (c) { c.checked = checkAll.checked; });
+                applyBulk();
                 refresh();
             });
         }
@@ -533,6 +714,7 @@ $open = $this->counts[''];
                         check.checked = select.value !== '' && select.value !== 'custom';
                     }
                 });
+                applyBulk();
                 refresh();
             });
         }
@@ -571,8 +753,17 @@ $open = $this->counts[''];
                 }
             }
 
-            select.addEventListener('change', function () {
+            // The row's own choice, kept apart from what "Oplossing voor de
+            // selectie" sets, so another choice there can be undone.
+            select.dataset.own = select.value;
+
+            select.addEventListener('change', function (event) {
+                if (event.isTrusted) {
+                    select.dataset.own = select.value;
+                }
+
                 update();
+                plan();
 
                 if (select.value === 'custom' && custom) {
                     custom.focus();
@@ -633,6 +824,10 @@ $open = $this->counts[''];
                 var external = document.getElementById('mc-links-external');
 
                 body.append('external', external && external.checked ? '1' : '0');
+
+                var extensions = document.getElementById('mc-links-extensions');
+
+                body.append('extensions', extensions && extensions.checked ? '1' : '0');
             }
             body.append(tokenName, '1');
 
@@ -702,6 +897,10 @@ $open = $this->counts[''];
 
             slot.appendChild(overlay);
             document.querySelector('.com-mediacleaner-links').classList.add('mc-scanning');
+
+            // The progress bar is at the top of the page: go there, so it
+            // is seen straight away also when the page was scrolled down.
+            window.scrollTo({top: 0, behavior: 'smooth'});
 
             step();
         });
