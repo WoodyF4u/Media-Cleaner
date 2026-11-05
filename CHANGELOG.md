@@ -5,63 +5,13 @@ controleren of een functie daadwerkelijk is meegenomen.
 
 ## 2.9.3
 
-Verbeteringen aan de Linkcontrole en Verkleinen na het testen van 2.9.2 op
-echte sites. Geen wijzigingen aan de database.
-
-- **Geen meldingen meer over bestanden van Joomla en extensies.** Een
-  ontbrekend bestand in de mappen van Joomla zelf of van extensies en
-  templates (`media/`, `components/`, `modules/`, `plugins/`,
-  `templates/`, `administrator/`, ...) wordt niet meer gemeld - bijv.
-  menu-icoontjes van verwijderde extensies of afbeeldingen van oude
-  AcyMailing-sjablonen. Daar kan op deze pagina niemand iets mee. Alleen
-  de eigen media van de site (`images/`, `files/`, ...) tellen.
-- Niet meer doorzocht: het beheerdersmenu (alleen menu-items van de site),
-  taaloverschrijvingen (`#__overrider`, tekst en geen links) en
-  history-tabellen van extensies (zoals `#__acym_history`, vaak de
-  grootste tabel van een site - de controle is daardoor ook veel
-  sneller).
-- In de keuzelijst **Bron** staat bij een extensie ook de tabel
-  ("AcyMailing (tabel #__acym_mail)"), want veel extensies hebben er
-  meer. Een tabel waar geen geïnstalleerde extensie bij hoort, staat er
-  als "(geen geïnstalleerde extensie - restant?)", zodat je die in één
-  keer kunt negeren.
-- **Standaard alleen wat een beheerder zelf kan aanpassen.** De
-  Linkcontrole doorzoekt standaard alleen de inhoud die je in Joomla zelf
-  maakt en bewerkt: artikelen, modules, menu-items, categorieën, banners,
-  contactpersonen, tags, eigen velden, templatestijlen en nieuwsfeeds -
-  allemaal met een knop Bewerken die naar het juiste scherm gaat.
-  Tabellen van extensies (verstuurde nieuwsbrieven, agenda's, galerijen,
-  instellingen) alleen als je "Ook tabellen van extensies doorzoeken"
-  aanvinkt (de keuze wordt onthouden). Op een site met AcyMailing scheelt
-  dat honderden meldingen over oude nieuwsbrieven waar niemand iets mee
-  kan. De uitleg boven de knop zegt nu ook precies wat er doorzocht wordt.
-- **Banner van een verdwenen bedrijf: in één keer weg.** Bij een
-  doodlopende link van een banner staat de oplossing **Banner naar de
-  prullenbak (wordt niet meer getoond)**: de banner gaat naar Joomla's
-  prullenbak, net als met Prullenbak in Componenten → Banners. Definitief
-  verwijderen (of terugzetten) doe je daar zoals altijd; **Ongedaan maken**
-  onder Gerepareerd zet de banner ook terug zoals hij was.
-- **Link leegmaken.** Voor een veld dat alleen uit de link bestaat (de
-  klik-URL van een banner, het adres van een menu-item, ...): het veld
-  wordt leeg, de banner blijft staan maar linkt nergens meer naartoe.
-- **Vooraf zien wat "Geselecteerde repareren" doet.** In de balk staat
-  nu **Oplossing voor de selectie**: kies bijv. "Link weghalen, tekst /
-  kleine foto laten staan" of "Banner naar de prullenbak", en die
-  oplossing wordt in elke geselecteerde regel ingevuld die haar heeft
-  (zichtbaar in de keuzelijst van die regel). Regels die haar niet hebben,
-  houden hun eigen keuze en worden oranje gemarkeerd. Kies je een andere
-  oplossing, of weer "per regel zelf kiezen", dan gaan de regels terug
-  naar hun eigen keuze. Onder de balk staat steeds wat er gaat gebeuren,
-  per soort geteld ("Wat er gebeurt met de 24 geselecteerde: 18 × Link
-  weghalen ... · 2 × geen oplossing gekozen (wordt overgeslagen)"), en
-  precies die tekst staat ook in de vraag voordat er iets gebeurt.
-- Na een klik op **Links controleren** / **Opnieuw controleren** gaat de
-  pagina naar boven, zodat de voortgangsbalk meteen te zien is, ook als je
-  naar beneden gescrold was.
-- **Verkleinen: knop Scan opnieuw uitvoeren.** Ook op het tabblad
-  Verkleinen staat nu de knop om opnieuw te scannen. De scan loopt met
-  dezelfde voortgangsbalk als bij Opruimen; daarna kom je vanzelf terug op
-  Verkleinen.
+- **Nieuwe naam: Compact Media Cleaner.** De component heet nu overal
+  Compact Media Cleaner: in het menu Componenten, de lijst met extensies,
+  de paginatitel en het versielabel op alle tabbladen, de Help-pagina,
+  de opties, de meldingen in het logboek, de updateserver en de README's.
+  De technische naam blijft `com_mediacleaner`, dus bijwerken over 2.9.2
+  heen werkt gewoon; instellingen, scanresultaten en de bewaarmap
+  `mediacleaner` blijven behouden.
 
 ## 2.9.2
 

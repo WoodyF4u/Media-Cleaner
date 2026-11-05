@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -181,7 +181,7 @@ $extensionFilterOptions = function () {
 <div class="com-mediacleaner-files">
     <div id="mc-rescan-overlay-slot"></div>
 
-    <h2 class="mc-page-title">Media Cleaner</h2>
+    <h2 class="mc-page-title">Compact Media Cleaner</h2>
 
     <?php echo \Joomla\Component\Mediacleaner\Administrator\Helper\TabsHelper::render('files'); ?>
 
@@ -216,7 +216,7 @@ $extensionFilterOptions = function () {
         </p>
 
         <?php if ($this->componentVersion !== '') : ?>
-            <span class="mc-version-label">Media Cleaner &middot; v<?php echo htmlspecialchars($this->componentVersion); ?></span>
+            <span class="mc-version-label">Compact Media Cleaner &middot; v<?php echo htmlspecialchars($this->componentVersion); ?></span>
         <?php endif; ?>
     </div>
 
@@ -983,11 +983,6 @@ $extensionFilterOptions = function () {
             doneUrl  = window.location.href
                 .replace(/([?&])mc_auto_rescan=1&?/, '$1')
                 .replace(/[?&]$/, '');
-
-            // v2.9.2: started from the Verkleinen tab - back there when done.
-            if (/[?&]mc_return=compress(&|$)/.test(window.location.search)) {
-                doneUrl = <?php echo json_encode(Route::_('index.php?option=com_mediacleaner&view=compress', false)); ?>;
-            }
 
             showOverlay();
             step();

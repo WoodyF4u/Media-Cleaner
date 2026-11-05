@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -266,17 +266,8 @@ class LinksModel extends BaseDatabaseModel
 
                 $label = trim(Text::_($row['name']));
 
-                // With the table: an extension often has several
-                // ("AcyMailing (tabel #__acym_mail)", "... #__acym_mail_archive").
-                return $this->sourceLabels[$table] = Text::sprintf('COM_MEDIACLEANER_LINKS_SOURCE_EXTENSION', $label !== '' ? $label : $row['element'], '#__' . $short);
+                return $this->sourceLabels[$table] = $label !== '' ? $label : $row['element'];
             }
-        }
-
-        // Not Joomla's own and no installed extension of that name: most
-        // likely left behind by an extension that was removed (e.g. the
-        // tables of AcyMailing 5 after moving to AcyMailing 6+).
-        if (!preg_match('~^(action_log|assets|associations|banner|categories|contact_|content|extensions|fields|finder_|guidedtour|history|languages|mail_templates|menu|messages|modules|newsfeeds|overrider|postinstall|privacy|redirect|scheduler|schemaorg|schemas|session|tags|template_|tuf_|ucm_|update|user|viewlevels|webauthn|workflow)~', $short)) {
-            return $this->sourceLabels[$table] = Text::sprintf('COM_MEDIACLEANER_LINKS_SOURCE_TABLE_ORPHAN', '#__' . $short);
         }
 
         return $this->sourceLabels[$table] = Text::sprintf('COM_MEDIACLEANER_LINKS_SOURCE_TABLE', '#__' . $short);
@@ -446,7 +437,7 @@ class LinksModel extends BaseDatabaseModel
                     $this->countError($result, 'CUSTOM_INVALID');
                     continue;
                 }
-            } elseif (\in_array($choice, ['copy', 'unwrap', 'remove', 'clear', 'trash'], true)) {
+            } elseif (\in_array($choice, ['copy', 'unwrap', 'remove'], true)) {
                 $action = $choice;
             } else {
                 $result['skipped']++;

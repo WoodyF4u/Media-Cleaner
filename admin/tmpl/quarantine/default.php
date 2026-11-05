@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -63,7 +63,7 @@ $badge = function (string $type) use ($videoExtensions, $audioExtensions) {
 };
 ?>
 <div class="com-mediacleaner-quarantine">
-    <h2 class="mc-page-title">Media Cleaner</h2>
+    <h2 class="mc-page-title">Compact Media Cleaner</h2>
 
     <div class="mc-notice">
         <?php echo Text::_('COM_MEDIACLEANER_QUARANTINE_NOTICE'); ?>

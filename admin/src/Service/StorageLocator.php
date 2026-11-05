@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -15,7 +15,7 @@ use Joomla\CMS\Http\HttpFactory;
 use Joomla\CMS\Uri\Uri;
 
 /**
- * Decides where Media Cleaner keeps the files it takes off the site
+ * Decides where Compact Media Cleaner keeps the files it takes off the site
  * (v2.9.0): the quarantine ("Tijdelijk verwijderd") and the originals of
  * files that were made smaller on the Verkleinen tab.
  *
@@ -50,7 +50,7 @@ class StorageLocator
      * them by checksum.
      */
     public const PROTECTION_FILES = [
-        '.htaccess'  => "# Media Cleaner - no direct web access to this folder.\n"
+        '.htaccess'  => "# Compact Media Cleaner - no direct web access to this folder.\n"
             . "<IfModule mod_authz_core.c>\n"
             . "    Require all denied\n"
             . "</IfModule>\n"
@@ -163,7 +163,7 @@ class StorageLocator
             }
         }
 
-        throw new \RuntimeException('Media Cleaner: no writable storage folder.');
+        throw new \RuntimeException('Compact Media Cleaner: no writable storage folder.');
     }
 
     /**
@@ -554,7 +554,7 @@ class StorageLocator
     /**
      * Small key/value store of the component's own (v2.9.0). Not the
      * component params: saving Opties replaces those completely, which
-     * would make Media Cleaner forget where it keeps its files.
+     * would make Compact Media Cleaner forget where it keeps its files.
      *
      * @param   string  $name
      * @param   mixed   $default

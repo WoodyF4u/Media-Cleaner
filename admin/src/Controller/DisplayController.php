@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -12,7 +12,7 @@ defined('_JEXEC') or die;
 use Joomla\CMS\MVC\Controller\BaseController;
 
 /**
- * Display controller for the Media Cleaner component.
+ * Display controller for the Compact Media Cleaner component.
  */
 class DisplayController extends BaseController
 {

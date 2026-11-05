@@ -3,7 +3,7 @@
     <name>COM_MEDIACLEANER</name>
     <element>com_mediacleaner</element>
     <author>Wouter (WoodyF4u)</author>
-    <creationDate>30 October 2026</creationDate>
+    <creationDate>5 November 2026</creationDate>
     <copyright>Copyright (C) 2026</copyright>
     <license>GNU General Public License version 2 or later; see LICENSE.txt</license>
     <version>2.9.3</version>
@@ -14,7 +14,7 @@
     <scriptfile>script.php</scriptfile>
 
     <updateservers>
-        <server type="extension" priority="1" name="Media Cleaner Update Site">https://raw.githubusercontent.com/WoodyF4u/Media-Cleaner/main/updates.xml</server>
+        <server type="extension" priority="1" name="Compact Media Cleaner Update Site">https://raw.githubusercontent.com/WoodyF4u/Media-Cleaner/main/updates.xml</server>
     </updateservers>
 
     <install>

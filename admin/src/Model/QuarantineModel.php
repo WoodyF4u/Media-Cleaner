@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -16,7 +16,7 @@ use Joomla\CMS\MVC\Model\BaseDatabaseModel;
 
 /**
  * Model backing the quarantine overview: files that were removed from their
- * original location via "Media Cleaner" but not yet permanently deleted, so
+ * original location via "Compact Media Cleaner" but not yet permanently deleted, so
  * they can still be reviewed and restored.
  */
 class QuarantineModel extends BaseDatabaseModel

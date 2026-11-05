@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -32,7 +32,7 @@ $items = [
 <div class="com-mediacleaner-help">
     <?php if ($this->componentVersion !== '') : ?>
         <div class="mc-help-summary-row">
-            <span class="mc-help-version-label">Media Cleaner &middot; v<?php echo htmlspecialchars($this->componentVersion); ?></span>
+            <span class="mc-help-version-label">Compact Media Cleaner &middot; v<?php echo htmlspecialchars($this->componentVersion); ?></span>
         </div>
     <?php endif; ?>
 

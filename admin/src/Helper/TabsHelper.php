@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -13,7 +13,7 @@ use Joomla\CMS\Language\Text;
 use Joomla\CMS\Router\Route;
 
 /**
- * The tabs at the top of Media Cleaner: "Opruimen" (the scanned files -
+ * The tabs at the top of Compact Media Cleaner: "Opruimen" (the scanned files -
  * linked or not) and "Verkleinen" (making media files smaller), both
  * v2.9.0, and "Linkcontrole" (links to files that do not exist, v2.9.1).
  * Each tab is its own view with its own toolbar; this only draws the tab

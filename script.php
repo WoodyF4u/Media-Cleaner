@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  *
  * Installer script. After every install/update, this automatically
@@ -216,7 +216,7 @@ class COM_MEDIACLEANERInstallerScript implements InstallerScriptInterface
         } catch (\Exception $e) {
             // Best-effort only - never let this break the install/update
             // itself. The Files view runs the same repair as a fallback.
-            Log::add('Media Cleaner: could not run database fix after install: ' . $e->getMessage(), Log::WARNING, 'jerror');
+            Log::add('Compact Media Cleaner: could not run database fix after install: ' . $e->getMessage(), Log::WARNING, 'jerror');
         }
 
         return true;
@@ -459,7 +459,7 @@ class COM_MEDIACLEANERInstallerScript implements InstallerScriptInterface
             // Best-effort only - never let this break the update itself.
             // Worst case, the site owner just sets these three switches
             // to "Ja" by hand on the Options screen.
-            Log::add('Media Cleaner: could not migrate Unlinked-view defaults: ' . $e->getMessage(), Log::WARNING, 'jerror');
+            Log::add('Compact Media Cleaner: could not migrate Unlinked-view defaults: ' . $e->getMessage(), Log::WARNING, 'jerror');
         }
     }
 
@@ -517,7 +517,7 @@ class COM_MEDIACLEANERInstallerScript implements InstallerScriptInterface
             // Best-effort only - never let this break the update itself.
             // Worst case, the site owner just clicks "Scan opnieuw
             // uitvoeren" by hand once, same as before this feature existed.
-            Log::add('Media Cleaner: could not mark rescan-after-update: ' . $e->getMessage(), Log::WARNING, 'jerror');
+            Log::add('Compact Media Cleaner: could not mark rescan-after-update: ' . $e->getMessage(), Log::WARNING, 'jerror');
         }
     }
 }

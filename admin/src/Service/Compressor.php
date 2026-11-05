@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -703,7 +703,7 @@ class Compressor
     protected function storeOriginal($abs, $relative)
     {
         // An original of the same name may already be kept (e.g. from
-        // before Media Cleaner was reinstalled): never overwrite it, keep
+        // before Compact Media Cleaner was reinstalled): never overwrite it, keep
         // this one next to it as "name.2.ext", "name.3.ext", ...
         $stored = $relative;
         $dot    = strrpos($relative, '.');

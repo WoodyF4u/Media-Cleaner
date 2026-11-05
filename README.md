@@ -1,4 +1,4 @@
-# Media Cleaner
+# Compact Media Cleaner
 
 A Joomla 6 administrator component that finds unused media files on your
 site, shows exactly where the ones that are still in use are referenced
@@ -14,7 +14,7 @@ Questions or issues: please [open a GitHub issue](https://github.com/WoodyF4u/Me
 
 ## What it does
 
-Media Cleaner scans your site's file system and database, then tells you,
+Compact Media Cleaner scans your site's file system and database, then tells you,
 for every image, document, video and other media file it finds:
 
 - whether it's **linked** (still referenced from somewhere) or
@@ -34,7 +34,7 @@ A rescan checks every discovered file against:
 2. **Every other database table on the site**, generic text/varchar
    columns included — so third-party extensions (event calendars,
    download managers, galleries, and so on) are picked up automatically,
-   without Media Cleaner needing to know their table names in advance.
+   without Compact Media Cleaner needing to know their table names in advance.
 3. The **source code** (`.php`, `.css`, `.js`, `.xml`) of everything
    under `templates/`, `plugins/`, `components/` and `modules/` — so
    files referenced from a template's own layout, a plugin's or
@@ -52,7 +52,7 @@ A file counts as:
 
 ### Limitations
 
-Media Cleaner can't detect a file that's referenced only *outside* the
+Compact Media Cleaner can't detect a file that's referenced only *outside* the
 areas above — for example from a hand-edited server configuration file,
 or from code outside the four scanned extension folders. Always take a
 quick look before deleting a file marked "Unlinked", especially if it's
@@ -129,7 +129,7 @@ having to touch the database:
   server has it, otherwise with a built-in method. Protected PDFs are
   never touched.
 
-When a file gets a new name (PNG → JPG, → WebP), Media Cleaner updates
+When a file gets a new name (PNG → JPG, → WebP), Compact Media Cleaner updates
 every reference in the database itself - including custom fields and
 serialized extension settings. A file named in the code of a template or
 extension keeps its name. Only files in the site's own folders are
@@ -155,7 +155,7 @@ with `/` that point at the domain root are listed separately (**Outside
 this site**): they still work, but only thanks to another site.
 
 For each reference you see where it is (with an **Edit** button) and
-choose a repair: point it at an existing file (Media Cleaner makes
+choose a repair: point it at an existing file (Compact Media Cleaner makes
 suggestions), copy the file into this site, remove the pop-up link and
 keep the small photo, remove the image, or enter a path yourself - per
 row or for a selection at once. Every repair is listed under
@@ -178,10 +178,10 @@ suggestion.
 
 Install like any Joomla extension: **System → Install → Extensions**,
 upload the zip from the [releases page](https://github.com/WoodyF4u/Media-Cleaner/releases).
-Media Cleaner registers its own update site, so future versions also
+Compact Media Cleaner registers its own update site, so future versions also
 show up under **System → Update → Extensions**.
 
-After installing or updating, visit the main Media Cleaner page once and
+After installing or updating, visit the main Compact Media Cleaner page once and
 run a rescan — several features rely on data computed at scan time, so a
 fresh scan after an update ensures the overview reflects the newest
 logic.

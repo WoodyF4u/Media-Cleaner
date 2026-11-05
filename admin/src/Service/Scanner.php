@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -2545,7 +2545,7 @@ class Scanner
             // Double extension: "x.jpg.webp" / "x.jpg_thumb.webp" -> "x.jpg".
             // Only inside a derived folder: in the same folder a plain
             // "x.webp" next to "x.jpg" is usually a deliberate conversion
-            // (Media Cleaner's own "Converteer naar WebP" makes exactly
+            // (Compact Media Cleaner's own "Converteer naar WebP" makes exactly
             // those), not a cache file.
             if ($allowWordMarkers && strpos($candidate, '.') !== false) {
                 $names[$candidate] = true;
@@ -3551,7 +3551,7 @@ class Scanner
                 $tables = $db->loadColumn();
             } catch (\Exception $e) {
                 $state['stats']['stopped_reason'] = 'could not list tables: ' . $e->getMessage();
-                Log::add('Media Cleaner: generic table sweep could not list tables (' . $e->getMessage() . ') - skipped.', Log::WARNING, 'jerror');
+                Log::add('Compact Media Cleaner: generic table sweep could not list tables (' . $e->getMessage() . ') - skipped.', Log::WARNING, 'jerror');
 
                 return true;
             }
@@ -3760,7 +3760,7 @@ class Scanner
     }
 
     /**
-     * v2.9.0: whether $absolutePath is Media Cleaner's own storage root
+     * v2.9.0: whether $absolutePath is Compact Media Cleaner's own storage root
      * (quarantine + originals, see StorageLocator) - when that sits in
      * the Joomla root it must never show up in its own overview.
      *

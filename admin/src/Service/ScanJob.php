@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -208,7 +208,7 @@ class ScanJob extends Scanner
                         $state['exception'] = $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine();
 
                         Log::add(
-                            'Media Cleaner: the extended (generic table / filesystem code) scan failed and was skipped for this rescan: ' . $e->getMessage(),
+                            'Compact Media Cleaner: the extended (generic table / filesystem code) scan failed and was skipped for this rescan: ' . $e->getMessage(),
                             Log::WARNING,
                             'jerror'
                         );
@@ -1004,7 +1004,7 @@ class ScanJob extends Scanner
         }
 
         if ($state['skipped'] > 0) {
-            Log::add('Media Cleaner: ' . $state['skipped'] . ' row(s) could not be stored in ' . $table . ' so far (' . $reason . ').', Log::WARNING, 'jerror');
+            Log::add('Compact Media Cleaner: ' . $state['skipped'] . ' row(s) could not be stored in ' . $table . ' so far (' . $reason . ').', Log::WARNING, 'jerror');
         }
     }
 

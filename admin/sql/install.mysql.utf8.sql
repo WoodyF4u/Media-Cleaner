@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS `#__mediacleaner_files` (
     `asset_dir_extension_name` VARCHAR(255) NULL DEFAULT NULL,
     `asset_dir_extension_removed` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
     -- v2.7.8: `file_modified_at` is the file's own filesystem mtime (NOT
-    -- when Media Cleaner scanned it - see `scanned_at` for that),
+    -- when Compact Media Cleaner scanned it - see `scanned_at` for that),
     -- captured so `is_system_asset_dir` files can be clustered by
     -- upload date to guess which ones were shipped together with the
     -- extension vs added later by hand - see

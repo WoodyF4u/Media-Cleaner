@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -46,12 +46,9 @@ class LinksController extends BaseController
                     // v2.9.2: also links to other websites; the choice is remembered.
                     $external = $this->input->getInt('external', 0) === 1;
 
-                    $extensions = $this->input->getInt('extensions', 0) === 1;
-
                     StorageLocator::setState('links_external', $external ? '1' : '0');
-                    StorageLocator::setState('links_extensions', $extensions ? '1' : '0');
 
-                    $jobId = $checker->start($external, $extensions);
+                    $jobId = $checker->start($external);
                 }
 
                 $payload = $checker->run($jobId, max(2, min(20, $this->input->getInt('budget', 8))));

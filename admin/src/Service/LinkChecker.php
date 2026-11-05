@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -80,38 +80,11 @@ class LinkChecker
     /**
      * Tables (after the prefix) not read on top of ReferenceRewriter's
      * own exclusions: Joomla's tag copies of content (#__ucm_content is
-     * rewritten when the item is saved), mail templates, logs, messages,
-     * language overrides (text, not links) and extensions' history/log
-     * tables such as #__acym_history (v2.9.2).
+     * rewritten when the item is saved), mail templates, logs, messages.
      *
      * @var string
      */
-    protected $skipTables = '~^(ucm_|mail_templates$|user_keys$|messages|privacy_|guidedtour|webauthn|overrider$|.*_logs?$|.*_history$)~i';
-
-    /**
-     * The tables checked by default (v2.9.2): the content an administrator
-     * makes and edits in Joomla itself - articles, modules, menu items,
-     * categories, banners, contacts, tags, custom fields, template styles,
-     * news feeds. Tables of extensions (sent newsletters, calendars,
-     * galleries, settings) only when asked for: what is in there can
-     * usually not be put right by an ordinary administrator, and would
-     * bury the links that can.
-     *
-     * @var string[]
-     */
-    const CONTENT_TABLES = ['content', 'modules', 'menu', 'categories', 'banners', 'contact_details', 'tags', 'fields_values', 'template_styles', 'newsfeeds'];
-
-    /**
-     * Folders of Joomla itself and of its extensions and templates (v2.9.2).
-     * A reference to a file in there that is missing comes from Joomla or
-     * an extension (an icon of the administrator menu, an AcyMailing
-     * template image, ...), not from the site's own content - nobody can
-     * do anything about it on this page, so it is not reported. The site's
-     * own media (images/, files/, any other own folder) always are.
-     *
-     * @var string[]
-     */
-    const SYSTEM_DIRS = ['administrator', 'api', 'bin', 'cache', 'cli', 'components', 'includes', 'installation', 'language', 'layouts', 'libraries', 'logs', 'media', 'modules', 'plugins', 'templates', 'tmp'];
+    protected $skipTables = '~^(ucm_|mail_templates$|user_keys$|messages|privacy_|guidedtour|webauthn|.*_logs?$)~i';
 
     /**
      * Rows read per query.
@@ -213,27 +186,17 @@ class LinkChecker
     // ------------------------------------------------------------------
 
     /**
-     * @param   boolean  $external    Also check links to other websites.
-     * @param   boolean  $extensions  Also read the tables of extensions
-     *                                (newsletters, calendars, galleries, ...).
+     * @param   boolean  $external  Also check links to other websites.
      *
      * @return  string  Job id.
      */
-    public function start($external = false, $extensions = false)
+    public function start($external = false)
     {
         $prefix  = $this->db->getPrefix();
         $targets = [];
 
         foreach ($this->rewriter->getTargets()['targets'] as $target) {
-            $short = substr($target['table'], \strlen($prefix));
-
-            if (preg_match($this->skipTables, $short)) {
-                continue;
-            }
-
-            // v2.9.2: by default only what an administrator edits in
-            // Joomla itself, with a Bewerken button that leads there.
-            if (!$extensions && !\in_array($short, self::CONTENT_TABLES, true)) {
+            if (preg_match($this->skipTables, substr($target['table'], \strlen($prefix)))) {
                 continue;
             }
 
@@ -251,7 +214,6 @@ class LinkChecker
             'full'    => false,
             // v2.9.2: external links.
             'external' => $external && self::canCheckExternal(),
-            'extensions' => (bool) $extensions,
             'phase'    => 'db',
             'ext'      => [],
             'urls'     => [],
@@ -345,11 +307,6 @@ class LinkChecker
 
             if ($state['cursor']['last'] !== null) {
                 $query->where($db->quoteName($target['pk']) . ' > ' . $db->quote($state['cursor']['last']));
-            }
-
-            // The administrator menu (its icons) is Joomla's, not the site's.
-            if (substr($target['table'], \strlen($db->getPrefix())) === 'menu') {
-                $query->where($db->quoteName('client_id') . ' = 0');
             }
 
             try {
@@ -574,11 +531,6 @@ class LinkChecker
                     ];
                 }
 
-                continue;
-            }
-
-            // Joomla's and extensions' own folders: not the site's content.
-            if (\in_array(strtolower(strtok($resolved['rel'], '/')), self::SYSTEM_DIRS, true) && strpos($resolved['rel'], '/') !== false) {
                 continue;
             }
 
@@ -1261,7 +1213,7 @@ class LinkChecker
         $multi   = curl_multi_init();
         $handles = [];
         $bodies  = [];
-        $agent   = 'Mozilla/5.0 (compatible; MediaCleaner-Linkcontrole; +' . rtrim(Uri::root(), '/') . ')';
+        $agent   = 'Mozilla/5.0 (compatible; CompactMediaCleaner-Linkcontrole; +' . rtrim(Uri::root(), '/') . ')';
 
         foreach ($urls as $url) {
             $ch = curl_init($url);
@@ -1783,7 +1735,6 @@ class LinkChecker
         StorageLocator::setState('links_checked', $now);
         StorageLocator::setState('links_checked_full', $state['full'] || !empty($state['extFull']) ? '1' : '0');
         StorageLocator::setState('links_checked_external', !empty($state['external']) ? '1' : '0');
-        StorageLocator::setState('links_checked_extensions', !empty($state['extensions']) ? '1' : '0');
 
         return $count;
     }

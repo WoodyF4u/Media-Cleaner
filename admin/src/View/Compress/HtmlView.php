@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -129,15 +129,6 @@ class HtmlView extends BaseHtmlView
     protected function addToolbar()
     {
         ToolbarHelper::title(Text::_('COM_MEDIACLEANER_TAB_COMPRESS_TITLE'), 'images mediacleaner');
-
-        // v2.9.2: scan again from here too. The scan itself runs on the
-        // Opruimen page (its stepped scan with progress bar, started by
-        // "mc_auto_rescan=1"); "mc_return=compress" brings you back here.
-        ToolbarHelper::link(
-            Route::_('index.php?option=com_mediacleaner&view=files&mc_auto_rescan=1&mc_return=compress'),
-            Text::_('COM_MEDIACLEANER_RESCAN'),
-            'refresh'
-        );
 
         // Same order and reasoning as the Files view (Options docks
         // right, Help right after it).

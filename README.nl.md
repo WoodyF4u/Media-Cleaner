@@ -1,4 +1,4 @@
-# Media Cleaner
+# Compact Media Cleaner
 
 Een Joomla 6-beheercomponent die ongebruikte mediabestanden op je site
 opspoort, precies laat zien waar de bestanden die nog wél in gebruik zijn
@@ -15,7 +15,7 @@ Vragen of problemen: open gerust een [GitHub-issue](https://github.com/WoodyF4u/
 
 ## Wat het doet
 
-Media Cleaner doorzoekt het bestandssysteem en de database van je site,
+Compact Media Cleaner doorzoekt het bestandssysteem en de database van je site,
 en laat vervolgens voor elke afbeelding, elk document, elke video en elk
 ander mediabestand zien:
 
@@ -37,7 +37,7 @@ Bij elke scan wordt elk gevonden bestand gecontroleerd tegen:
 2. **Alle overige databasetabellen op de site**, inclusief algemene
    tekst-/varchar-kolommen — waardoor ook extensies van derden
    (agenda's, downloadbeheer, galerijen, enzovoort) automatisch worden
-   herkend, zonder dat Media Cleaner hun tabelnamen vooraf hoeft te
+   herkend, zonder dat Compact Media Cleaner hun tabelnamen vooraf hoeft te
    kennen.
 3. De **broncode** (`.php`, `.css`, `.js`, `.xml`) van alles onder
    `templates/`, `plugins/`, `components/` en `modules/` — zo worden
@@ -59,7 +59,7 @@ Een bestand wordt gemarkeerd als:
 
 ### Beperkingen
 
-Media Cleaner kan een bestand niet herkennen als het uitsluitend buiten
+Compact Media Cleaner kan een bestand niet herkennen als het uitsluitend buiten
 bovenstaande gebieden wordt aangeroepen — bijvoorbeeld vanuit een
 handmatig bewerkt serverconfiguratiebestand, of code buiten de vier
 gescande extensiemappen. Kijk daarom altijd even goed voordat je een als
@@ -170,7 +170,7 @@ domein wijzen apart getoond (**Buiten deze site**): ze werken nu nog,
 maar alleen dankzij een andere site.
 
 Per verwijzing zie je waar hij staat (met een knop **Bewerken**) en kies
-je een oplossing: laten wijzen naar een bestaand bestand (Media Cleaner
+je een oplossing: laten wijzen naar een bestaand bestand (Compact Media Cleaner
 doet voorstellen), het bestand naar deze site kopiëren, de pop-uplink
 weghalen en de kleine foto laten staan, de afbeelding weghalen, of zelf
 een pad invullen. Per regel of voor een selectie in één keer. Elke
@@ -194,7 +194,7 @@ internetarchief als voorstel.
 Installeren gaat zoals bij elke Joomla-extensie: **Systeem → Installeren
 → Extensies**, upload de zip van de
 [releasepagina](https://github.com/WoodyF4u/Media-Cleaner/releases).
-Media Cleaner registreert zijn eigen updateserver, dus nieuwe versies
+Compact Media Cleaner registreert zijn eigen updateserver, dus nieuwe versies
 verschijnen ook vanzelf onder **Systeem → Bijwerken → Extensies**.
 
 Bezoek na het installeren of bijwerken één keer de hoofdpagina van Media

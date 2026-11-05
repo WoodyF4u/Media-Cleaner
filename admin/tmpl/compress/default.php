@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package     Media Cleaner
+ * @package     Compact Media Cleaner
  * @subpackage  com_mediacleaner
  */
 
@@ -88,7 +88,7 @@ $pageUrl = function ($start) use ($h) {
 <div class="com-mediacleaner-files com-mediacleaner-compress">
     <div id="mc-rescan-overlay-slot"></div>
 
-    <h2 class="mc-page-title">Media Cleaner</h2>
+    <h2 class="mc-page-title">Compact Media Cleaner</h2>
 
     <?php echo TabsHelper::render('compress'); ?>
 
@@ -102,7 +102,7 @@ $pageUrl = function ($start) use ($h) {
         </p>
 
         <?php if ($this->componentVersion !== '') : ?>
-            <span class="mc-version-label">Media Cleaner &middot; v<?php echo $h($this->componentVersion); ?></span>
+            <span class="mc-version-label">Compact Media Cleaner &middot; v<?php echo $h($this->componentVersion); ?></span>
         <?php endif; ?>
     </div>
 
