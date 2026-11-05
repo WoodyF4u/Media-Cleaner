@@ -9,6 +9,7 @@ namespace Joomla\Component\Mediacleaner\Administrator\Service;
 
 defined('_JEXEC') or die;
 
+use Joomla\CMS\Component\ComponentHelper;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Uri\Uri;
@@ -85,6 +86,22 @@ class LinkChecker
      * @var string
      */
     protected $skipTables = '~^(ucm_|mail_templates$|user_keys$|messages|privacy_|guidedtour|webauthn|.*_logs?$)~i';
+
+    /**
+     * v2.9.4: Joomla's own tables holding content an administrator opens
+     * and edits in the backend (see describer()), plus custom field
+     * values. By default only these are read: a reference in an
+     * extension's table (a 404 log, a statistics table, an extension's
+     * own settings) is nothing an ordinary administrator can repair, so
+     * it does not belong in the list. Option "linkcheck_extension_tables"
+     * reads all other tables too.
+     *
+     * @var string[]
+     */
+    protected $contentTables = [
+        'content', 'modules', 'menu', 'categories', 'contact_details',
+        'banners', 'tags', 'template_styles', 'users', 'fields_values',
+    ];
 
     /**
      * Rows read per query.
@@ -195,8 +212,20 @@ class LinkChecker
         $prefix  = $this->db->getPrefix();
         $targets = [];
 
+        try {
+            $withExtensions = (int) ComponentHelper::getParams('com_mediacleaner')->get('linkcheck_extension_tables', 0) === 1;
+        } catch (\Throwable $e) {
+            $withExtensions = false;
+        }
+
         foreach ($this->rewriter->getTargets()['targets'] as $target) {
-            if (preg_match($this->skipTables, substr($target['table'], \strlen($prefix)))) {
+            $short = substr($target['table'], \strlen($prefix));
+
+            if (preg_match($this->skipTables, $short)) {
+                continue;
+            }
+
+            if (!$withExtensions && !\in_array(strtolower($short), $this->contentTables, true)) {
                 continue;
             }
 

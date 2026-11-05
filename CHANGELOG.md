@@ -3,6 +3,37 @@
 Elke regel is ook een test die je na installatie kunt aflopen om te
 controleren of een functie daadwerkelijk is meegenomen.
 
+## 2.9.4
+
+- **Linkcontrole: alleen wat een beheerder kan repareren.** Standaard
+  doorzoekt de Linkcontrole nu alleen Joomla's eigen inhoud: artikelen,
+  modules, menu-items, categorieën, contactpersonen, banners, tags,
+  templatestijlen, gebruikers en eigen velden. Tabellen van extensies
+  worden overgeslagen, bijvoorbeeld het 404-logboek van RSSEO
+  (`#__rsseo_error_links`), statistieken of instellingen van extensies:
+  daar kan een beheerder niets repareren. Test: klik op **Opnieuw
+  controleren**; er staan geen regels "Tabel #__..." van extensies meer in
+  de lijst.
+- **Nieuwe optie** in Opties, tabblad Instellingen: **Linkcontrole: ook
+  tabellen van extensies** (standaard Nee). Zet je die op Ja, dan worden
+  alle tabellen weer doorzocht, zoals in 2.9.3 - handig voor bijvoorbeeld
+  de inhoud van een pagebuilder.
+- **Linkcontrole volgt wat er sinds de controle is gebeurd.** Bij elk
+  openen van de pagina kijkt de Linkcontrole of de bron van elke regel nog
+  bestaat. Een artikel (of module, menu-item, ...) dat je na de controle
+  hebt verwijderd, verdwijnt meteen uit de lijst; is het naar de
+  prullenbak verplaatst, hernoemd of weer gepubliceerd, dan lopen titel
+  en status mee. Regels van een tabel die helemaal niet meer bestaat
+  (extensie verwijderd) verdwijnen ook. Test: open vanuit de Linkcontrole
+  een artikel, zet het in de prullenbak en ga terug - het telt nu mee als
+  prullenbak en is alleen nog te zien als je die laat tonen; leeg de prullenbak en ga terug - de regel is weg,
+  zonder opnieuw te controleren.
+- **Gerepareerd volgt ook.** Een reparatie in een artikel (of ander item)
+  dat inmiddels is verwijderd, verdwijnt uit het overzicht Gerepareerd:
+  ongedaan maken kan dan toch niet meer. Test: repareer een link in een
+  artikel, verwijder het artikel definitief en open de Linkcontrole - de
+  reparatie staat niet meer onder Gerepareerd.
+
 ## 2.9.3
 
 - **Nieuwe naam: Compact Media Cleaner.** De component heet nu overal

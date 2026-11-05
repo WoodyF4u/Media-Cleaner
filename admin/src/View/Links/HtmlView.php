@@ -102,6 +102,10 @@ class HtmlView extends BaseHtmlView
             $app->setUserState('com_mediacleaner.links.start', $this->start);
         }
 
+        // v2.9.4: drop rows of items deleted since the check, follow
+        // trashed/renamed items.
+        $model->syncWithSources();
+
         $this->checkedAt = $model->getCheckedAt();
         $this->wasCut    = $model->wasCut();
         $this->sources   = $model->getSources($this->filter, $this->showTrashed);

@@ -74,6 +74,251 @@ class LinksModel extends BaseDatabaseModel
     }
 
     /**
+     * v2.9.4: Joomla's own tables - title and state column - so the list
+     * can follow what happened to an item after the check.
+     *
+     * @var array  short table name => [title column, state column or '']
+     */
+    const LIVE_COLUMNS = [
+        'content'         => ['title', 'state'],
+        'modules'         => ['title', 'published'],
+        'menu'            => ['title', 'published'],
+        'categories'      => ['title', 'published'],
+        'contact_details' => ['name', 'published'],
+        'banners'         => ['name', 'state'],
+        'tags'            => ['title', 'published'],
+        'template_styles' => ['title', ''],
+        'users'           => ['name', ''],
+    ];
+
+    /**
+     * v2.9.4: bring the stored list in line with the site as it is now.
+     *
+     * The list is the result of the last check. When an item has since
+     * been deleted (an article opened from this list, trashed, and the
+     * trash emptied), its rows go; when it has been trashed, renamed or
+     * published again, its state and title follow. Rows of a table that
+     * no longer exists at all (extension uninstalled) go too. Rows
+     * without a primary key (read by value) are left as they are.
+     *
+     * Runs on every page load: one query per table per 500 items.
+     *
+     * @return  integer  Rows removed.
+     */
+    public function syncWithSources()
+    {
+        $db      = $this->getDatabase();
+        $prefix  = $db->getPrefix();
+        $removed = 0;
+
+        try {
+            $groups = $db->setQuery(
+                $db->getQuery(true)
+                    ->select('DISTINCT ' . $db->quoteName('table_name') . ', ' . $db->quoteName('pk_column'))
+                    ->from($db->quoteName('#__mediacleaner_links'))
+                    ->where($db->quoteName('pk_column') . ' <> ' . $db->quote(''))
+            )->loadRowList();
+
+            $existing = array_flip(array_map('strtolower', $db->getTableList()));
+        } catch (\Throwable $e) {
+            return 0;
+        }
+
+        foreach ($groups as [$table, $pkColumn]) {
+            try {
+                if (!isset($existing[strtolower($table)])) {
+                    $db->setQuery(
+                        $db->getQuery(true)
+                            ->delete($db->quoteName('#__mediacleaner_links'))
+                            ->where($db->quoteName('table_name') . ' = ' . $db->quote($table))
+                    )->execute();
+
+                    $removed += (int) $db->getAffectedRows();
+                    continue;
+                }
+
+                $short  = strtolower(substr($table, \strlen($prefix)));
+                $live   = self::LIVE_COLUMNS[$short] ?? null;
+                $stored = [];
+
+                foreach ($db->setQuery(
+                    $db->getQuery(true)
+                        ->select($db->quoteName(['pk_value', 'location_title', 'item_state']))
+                        ->from($db->quoteName('#__mediacleaner_links'))
+                        ->where($db->quoteName('table_name') . ' = ' . $db->quote($table))
+                        ->where($db->quoteName('pk_column') . ' = ' . $db->quote($pkColumn))
+                )->loadRowList() as [$pkValue, $storedTitle, $storedState]) {
+                    $stored[(string) $pkValue][] = [(string) $storedTitle, $storedState === null ? null : (int) $storedState];
+                }
+
+                $values = array_map('strval', array_keys($stored));
+
+                foreach (array_chunk($values, 500) as $chunk) {
+                    $select = [$db->quoteName($pkColumn, 'pk')];
+
+                    if ($live) {
+                        $select[] = $db->quoteName($live[0], 'title');
+
+                        if ($live[1] !== '') {
+                            $select[] = $db->quoteName($live[1], 'state');
+                        }
+                    }
+
+                    $rows = $db->setQuery(
+                        $db->getQuery(true)
+                            ->select($select)
+                            ->from($db->quoteName($table))
+                            ->where($db->quoteName($pkColumn) . ' IN (' . implode(',', array_map([$db, 'quote'], $chunk)) . ')')
+                    )->loadAssocList('pk');
+
+                    $found = [];
+
+                    foreach ($rows as $pk => $row) {
+                        $found[strtolower((string) $pk)] = $row;
+                    }
+
+                    $gone = [];
+
+                    foreach ($chunk as $value) {
+                        $row = $found[strtolower((string) $value)] ?? null;
+
+                        if ($row === null) {
+                            $gone[] = $value;
+                            continue;
+                        }
+
+                        if (!$live) {
+                            continue;
+                        }
+
+                        $title = mb_substr((string) $row['title'], 0, 255);
+                        $state = $live[1] !== '' ? (int) $row['state'] : null;
+                        $same  = true;
+
+                        foreach ($stored[$value] as [$storedTitle, $storedState]) {
+                            if ($storedTitle !== $title || ($live[1] !== '' && $storedState !== $state)) {
+                                $same = false;
+                                break;
+                            }
+                        }
+
+                        if ($same) {
+                            continue;
+                        }
+
+                        $update = $db->getQuery(true)
+                            ->update($db->quoteName('#__mediacleaner_links'))
+                            ->set($db->quoteName('location_title') . ' = ' . $db->quote($title))
+                            ->where($db->quoteName('table_name') . ' = ' . $db->quote($table))
+                            ->where($db->quoteName('pk_column') . ' = ' . $db->quote($pkColumn))
+                            ->where($db->quoteName('pk_value') . ' = ' . $db->quote($value));
+
+                        if ($state !== null) {
+                            $update->set($db->quoteName('item_state') . ' = ' . $state);
+                        }
+
+                        $db->setQuery($update)->execute();
+                    }
+
+                    if ($gone) {
+                        $db->setQuery(
+                            $db->getQuery(true)
+                                ->delete($db->quoteName('#__mediacleaner_links'))
+                                ->where($db->quoteName('table_name') . ' = ' . $db->quote($table))
+                                ->where($db->quoteName('pk_column') . ' = ' . $db->quote($pkColumn))
+                                ->where($db->quoteName('pk_value') . ' IN (' . implode(',', array_map([$db, 'quote'], $gone)) . ')')
+                        )->execute();
+
+                        $removed += (int) $db->getAffectedRows();
+                    }
+                }
+            } catch (\Throwable $e) {
+                // A table that cannot be read right now: leave its rows alone.
+                continue;
+            }
+        }
+
+        $this->removeFixesOfVanishedItems($existing, $prefix);
+
+        return $removed;
+    }
+
+    /**
+     * v2.9.4: the "Gerepareerd" log follows the site too. A repair in an
+     * item that has since been deleted (or in a table that no longer
+     * exists) can no longer be undone and is of no use to anyone, so it
+     * goes from the log.
+     *
+     * @param   array   $existing  lowercase table name => index
+     * @param   string  $prefix
+     *
+     * @return  void
+     */
+    protected function removeFixesOfVanishedItems(array $existing, $prefix)
+    {
+        $db = $this->getDatabase();
+
+        try {
+            $groups = $db->setQuery(
+                $db->getQuery(true)
+                    ->select('DISTINCT ' . $db->quoteName('table_name') . ', ' . $db->quoteName('pk_column'))
+                    ->from($db->quoteName('#__mediacleaner_link_fixes'))
+                    ->where($db->quoteName('pk_column') . ' <> ' . $db->quote(''))
+            )->loadRowList();
+        } catch (\Throwable $e) {
+            return;
+        }
+
+        foreach ($groups as [$table, $pkColumn]) {
+            try {
+                $where = [
+                    $db->quoteName('table_name') . ' = ' . $db->quote($table),
+                    $db->quoteName('pk_column') . ' = ' . $db->quote($pkColumn),
+                ];
+
+                if (!isset($existing[strtolower($table)])) {
+                    $db->setQuery($db->getQuery(true)->delete($db->quoteName('#__mediacleaner_link_fixes'))->where($where))->execute();
+                    continue;
+                }
+
+                $values = array_map('strval', $db->setQuery(
+                    $db->getQuery(true)
+                        ->select('DISTINCT ' . $db->quoteName('pk_value'))
+                        ->from($db->quoteName('#__mediacleaner_link_fixes'))
+                        ->where($where)
+                )->loadColumn());
+
+                foreach (array_chunk($values, 500) as $chunk) {
+                    $present = array_flip(array_map(static function ($v) {
+                        return strtolower((string) $v);
+                    }, $db->setQuery(
+                        $db->getQuery(true)
+                            ->select($db->quoteName($pkColumn))
+                            ->from($db->quoteName($table))
+                            ->where($db->quoteName($pkColumn) . ' IN (' . implode(',', array_map([$db, 'quote'], $chunk)) . ')')
+                    )->loadColumn()));
+
+                    $gone = array_values(array_filter($chunk, static function ($v) use ($present) {
+                        return !isset($present[strtolower($v)]);
+                    }));
+
+                    if ($gone) {
+                        $db->setQuery(
+                            $db->getQuery(true)
+                                ->delete($db->quoteName('#__mediacleaner_link_fixes'))
+                                ->where($where)
+                                ->where($db->quoteName('pk_value') . ' IN (' . implode(',', array_map([$db, 'quote'], $gone)) . ')')
+                        )->execute();
+                    }
+                }
+            } catch (\Throwable $e) {
+                // A table that cannot be read right now: leave its log alone.
+                continue;
+            }
+        }
+    }
+
+    /**
      * @return  string|null  When the last check finished.
      */
     public function getCheckedAt()
